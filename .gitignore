@@ -1,0 +1,14 @@
+dataset/cct/dataset/color_dataset/
+dataset/cct/dataset/infrared_dataset/
+dataset/wcs/dataset/color_dataset/
+dataset/wcs/dataset/infrared_dataset/
+core/models/clip/
+core/pretrained_models/
+command_log/
+lr_list/
+result/
+output/
+core/__pycache__/
+utils/__pycache__
+core/models/__pycache__
+dataset/__pycache__/

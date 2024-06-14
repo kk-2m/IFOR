@@ -1,0 +1,22 @@
+{
+    "../model/ranma/dataset/cct/infrared_bboxes/opossum": 11979,
+    "../model/ranma/dataset/cct/infrared_bboxes/raccoon": 7862,
+    "../model/ranma/dataset/cct/infrared_bboxes/deer": 3681,
+    "../model/ranma/dataset/cct/infrared_bboxes/coyote": 3349,
+    "../model/ranma/dataset/cct/infrared_bboxes/rabbit": 3194,
+    "../model/ranma/dataset/cct/infrared_bboxes/bobcat": 3028,
+    "../model/ranma/dataset/cct/infrared_bboxes/cat": 2637,
+    "../model/ranma/dataset/cct/infrared_bboxes/rodent": 1835,
+    "../model/ranma/dataset/cct/infrared_bboxes/skunk": 1040,
+    "../model/ranma/dataset/cct/infrared_bboxes/fox": 929,
+    "../model/ranma/dataset/cct/infrared_bboxes/dog": 707,
+    "../model/ranma/dataset/cct/infrared_bboxes/bird": 501,
+    "../model/ranma/dataset/cct/infrared_bboxes/squirrel": 150,
+    "../model/ranma/dataset/cct/infrared_bboxes/empty": 123,
+    "../model/ranma/dataset/cct/infrared_bboxes/car": 48,
+    "../model/ranma/dataset/cct/infrared_bboxes/mountain_lion": 25,
+    "../model/ranma/dataset/cct/infrared_bboxes/badger": 20,
+    "../model/ranma/dataset/cct/infrared_bboxes/insect": 6,
+    "../model/ranma/dataset/cct/infrared_bboxes/bat": 1,
+    "../model/ranma/dataset/cct/infrared_bboxes/lizard": 1
+}

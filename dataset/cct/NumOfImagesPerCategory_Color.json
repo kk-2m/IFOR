@@ -1,0 +1,21 @@
+{
+    "../model/ranma/dataset/cct/color_bboxes/bird": 3532,
+    "../model/ranma/dataset/cct/color_bboxes/coyote": 3162,
+    "../model/ranma/dataset/cct/color_bboxes/rabbit": 2835,
+    "../model/ranma/dataset/cct/color_bboxes/deer": 2750,
+    "../model/ranma/dataset/cct/color_bboxes/squirrel": 2527,
+    "../model/ranma/dataset/cct/color_bboxes/car": 2512,
+    "../model/ranma/dataset/cct/color_bboxes/dog": 2179,
+    "../model/ranma/dataset/cct/color_bboxes/bobcat": 2030,
+    "../model/ranma/dataset/cct/color_bboxes/cat": 1774,
+    "../model/ranma/dataset/cct/color_bboxes/lizard": 177,
+    "../model/ranma/dataset/cct/color_bboxes/fox": 171,
+    "../model/ranma/dataset/cct/color_bboxes/skunk": 158,
+    "../model/ranma/dataset/cct/color_bboxes/opossum": 156,
+    "../model/ranma/dataset/cct/color_bboxes/empty": 63,
+    "../model/ranma/dataset/cct/color_bboxes/raccoon": 46,
+    "../model/ranma/dataset/cct/color_bboxes/mountain_lion": 19,
+    "../model/ranma/dataset/cct/color_bboxes/badger": 8,
+    "../model/ranma/dataset/cct/color_bboxes/rodent": 7,
+    "../model/ranma/dataset/cct/color_bboxes/insect": 1
+}
