@@ -704,8 +704,12 @@ if __name__ == '__main__':
                 loss_episode = 0
                 total_loss = 0.0
                 # 3回繰り返す
-
-
+                # # k-meansとsvmの実行
+                # opts.train.mode = 'regular'
+                # opts.train.batch_size_test = 25
+                # train_kmeans_db = data_loader(opts, opts_train, 'train')
+                # opts.train.mode = 'openfew'
+                # opts.train.batch_size_test = 1
 
                 for epoch in range(total_ep):
                     # DATA
@@ -722,6 +726,7 @@ if __name__ == '__main__':
                     new_lr = optimizer.param_groups[0]['lr']
                     if new_lr != old_lr:
                         opts.logger('LR changes from {:.8f} to {:.8f} at episode {:d}\n'.format(old_lr, new_lr, epoch*opts.fsl.iterations))
+                    
                     # バッチの数(1*)だけ繰り返す。
                     for step, batch in enumerate(train_db):
                         # fsl.iterations = 100:
@@ -732,7 +737,13 @@ if __name__ == '__main__':
                         # adjust loss scale
                         update_loss_scale(opts, episode)
                         # ネットにバッチを入力してロスを取得。
-                        loss = net(batch, opts_train, True)
+                        loss = net(batch, opts_train, train=True)
+                        # #k-means loss
+                        # for d in train_kmeans_db:
+                        #     l_kmeans = net(batch, opts_train, train=True)
+
+
+                        # total_loss += loss.item() + l_kmeans.item()
                         total_loss += loss.item()
                         # ロスでネットを更新
                         optimizer.zero_grad()

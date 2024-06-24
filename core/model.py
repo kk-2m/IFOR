@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from utils.nearest_neighbor import k_center
 
 from core.feat import feat_extract, BasicBlock, conv1x1
 
@@ -159,6 +160,9 @@ class OpenNet(nn.Module):
         query_amount = int(n_way * m_query / fold)
         # 75
         open_amount = int(open_cls * open_sample / fold)
+
+        features = torch.zeros(self.num_classes, 192, device=self.opts.ctrl.device) # shape=(image_number*100,64)
+        total_id = torch.zeros(self.num_classes, dtype=torch.int32, device=self.opts.ctrl.device) # group number of the image
 
         # FEATURE EXTRACTION
         # x_allは特徴抽出した結果のすべて
@@ -347,6 +351,7 @@ class OpenNet(nn.Module):
             elif self.opts.model.structure == "vit":
                 if self.opts.train.aux:
                     target_base = target[support_amount+query_amount+open_amount:]
+                    print(target_base)
                     # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
                     # 補助タスクとは分類損失をとるために、support-set, query-set, open-setを用いて、分類問題を解くタスク
                     # 実質dist_baseとして扱える
@@ -362,15 +367,27 @@ class OpenNet(nn.Module):
 
                     # クロスエントロピー損失関数（cel_all）を使用して、補助タスクの損失 l_aux を計算
                     l_aux = self.cel_all(cls_pred, target_base)
+
+                    ## k-means loss
+
+                    unique_target = torch.unique(target_base)
+                    k = len(unique_target)
+                    print('k =',k)
+                    _, best_c = k_center(base_mu, groups=k)
+                    k_distance = torch.sum(torch.pow((base_mu.expand(best_c.shape[0],base_mu.shape[0],base_mu.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
+                    # 各クラスと割り当てられたクラスタ中心との距離の最小値の平均をとる
+                    l_kmeans = k_distance.min(dim=1).values.mean()
                 else:
                     l_aux = torch.tensor([0])
+                    l_kmeans = torch.tensor([0])
+            
 
             if self.opts.train.entropy and self.opts.train.aux:
-                loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux
+                loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux + l_kmeans
             elif self.opts.train.entropy:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy
             elif self.opts.train.aux:
-                loss = l_few + l_aux * self.opts.train.loss_scale_aux
+                loss = l_few + l_aux * self.opts.train.loss_scale_aux + l_kmeans
             else:
                 loss = l_few
 
