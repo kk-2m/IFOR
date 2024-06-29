@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 def k_center(features, groups:int, device="cuda"):
     c = torch.zeros([groups, features.shape[1]], device=device)
@@ -37,3 +38,29 @@ def k_center(features, groups:int, device="cuda"):
     for k in range(groups):
         id_size[k] = torch.sum(best_id==k)
     return best_id, best_c
+
+# クラスタ中心を更新する関数
+def k_center_simple(features, f_id, c, groups:int, device="cpu"):
+	id_size = torch.zeros(groups, device=device)
+	distance = torch.zeros([features.shape[0],groups], device=device)
+
+	for epoch in range(40):
+		for k in range(groups):
+			id_size[k] = torch.sum(f_id==k)
+			if id_size[k] != 0:
+				c[k,:] = torch.mean(features[f_id==k,:],dim=0)
+		for k in range(groups):
+			distance[:,k] = torch.sum(torch.pow((features - c[k,:]),2),dim = 1)
+			new_id = torch.argsort(distance,dim = 1)[:,0].type(torch.int32)
+		if torch.sum(torch.abs(f_id-new_id))==0:
+			break
+		else:
+			f_id=new_id
+			
+	for k in range(groups):
+		id_size[k] = torch.sum(f_id==k)
+		
+	print('id_size=',id_size.type(torch.int32))
+	print(np.where(id_size.cpu()!=0)[0].shape)
+	
+	return f_id, c, id_size

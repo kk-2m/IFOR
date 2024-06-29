@@ -46,6 +46,21 @@ def roc_area_calc(args, dist, closed, descending, total_height, total_width):
     area = area / total_height / total_width
     return area
 
+def to_device(obj, device, non_blocking=False):
+    if isinstance(obj, torch.Tensor):
+        return obj.to(device, non_blocking=non_blocking)
+
+    if isinstance(obj, dict):
+        return {k: to_device(v, device, non_blocking=non_blocking)
+                for k, v in obj.items()}
+
+    if isinstance(obj, list):
+        return [to_device(v, device, non_blocking=non_blocking)
+                for v in obj]
+
+    if isinstance(obj, tuple):
+        return tuple([to_device(v, device, non_blocking=non_blocking)
+                     for v in obj])
 
 def update_loss_scale(opts, episode):
     # defaut 30000

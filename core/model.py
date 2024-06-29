@@ -321,10 +321,10 @@ class OpenNet(nn.Module):
             # defaulでtrue
             # 補助タスクに関する損失計算
             if self.opts.model.structure == "resnet":
+                target_base = target[support_amount+query_amount+open_amount:]
+                # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
+                base_mu = x_mu[support_amount+query_amount+open_amount:, :, :, :]
                 if self.opts.train.aux:
-                    target_base = target[support_amount+query_amount+open_amount:]
-                    # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
-                    base_mu = x_mu[support_amount+query_amount+open_amount:, :, :, :]
                     # print("base_mu1",base_mu.size())
                     # 平均プーリングを実行し、特徴量の平均値を計算
                     dist_base = self.avgpool(base_mu)
@@ -349,17 +349,16 @@ class OpenNet(nn.Module):
                 else:
                     l_aux = torch.tensor([0])
             elif self.opts.model.structure == "vit":
+                target_base = target[support_amount+query_amount+open_amount:]
+                # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
+                # 補助タスクとは分類損失をとるために、support-set, query-set, open-setを用いて、分類問題を解くタスク
+                # 実質dist_baseとして扱える
+                base_mu = x_mu[support_amount+query_amount+open_amount:,:]
+                # print("base_mu1",base_mu.size())
+                base_size, feat_size = base_mu.size()
+                print("base_mu",base_mu.size())
+                # print("base_mu", base_mu)
                 if self.opts.train.aux:
-                    target_base = target[support_amount+query_amount+open_amount:]
-                    print(target_base)
-                    # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
-                    # 補助タスクとは分類損失をとるために、support-set, query-set, open-setを用いて、分類問題を解くタスク
-                    # 実質dist_baseとして扱える
-                    base_mu = x_mu[support_amount+query_amount+open_amount:,:]
-                    # print("base_mu1",base_mu.size())
-                    base_size, feat_size = base_mu.size()
-                    print("base_mu",base_mu.size())
-                    print("base_mu", base_mu)
                     # ニューラルネットワークの全結合層 self.fc を使用して、補助タスクの予測を行います。
                     # ViTで特徴抽出 -> 全結合層を用いて予測を行う
                     cls_pred = self.fc(base_mu)
@@ -367,31 +366,19 @@ class OpenNet(nn.Module):
 
                     # クロスエントロピー損失関数（cel_all）を使用して、補助タスクの損失 l_aux を計算
                     l_aux = self.cel_all(cls_pred, target_base)
-
-                    ## k-means loss
-
-                    unique_target = torch.unique(target_base)
-                    k = len(unique_target)
-                    print('k =',k)
-                    _, best_c = k_center(base_mu, groups=k)
-                    k_distance = torch.sum(torch.pow((base_mu.expand(best_c.shape[0],base_mu.shape[0],base_mu.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
-                    # 各クラスと割り当てられたクラスタ中心との距離の最小値の平均をとる
-                    l_kmeans = k_distance.min(dim=1).values.mean()
                 else:
                     l_aux = torch.tensor([0])
-                    l_kmeans = torch.tensor([0])
-            
 
             if self.opts.train.entropy and self.opts.train.aux:
-                loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux + l_kmeans
+                loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux
             elif self.opts.train.entropy:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy
             elif self.opts.train.aux:
-                loss = l_few + l_aux * self.opts.train.loss_scale_aux + l_kmeans
+                loss = l_few + l_aux * self.opts.train.loss_scale_aux
             else:
                 loss = l_few
 
-            return loss
+            return loss, base_mu
 
         else:
             # TEST
@@ -746,3 +733,29 @@ class OpenNet(nn.Module):
     #                             norm_layer=norm_layer))
 
     #     return nn.Sequential(*layers)
+
+# クラスタ中心を更新する関数
+def k_center_simple(features, f_id, c, groups:int, device="cpu"):
+    id_size = torch.zeros(groups, device=device)
+    distance = torch.zeros([features.shape[0],groups], device=device)
+
+    for epoch in range(40):
+        for k in range(groups):
+            id_size[k] = torch.sum(f_id==k)
+            if id_size[k] != 0:
+                c[k,:] = torch.mean(features[f_id==k,:],dim=0)
+        for k in range(groups):
+            distance[:,k] = torch.sum(torch.pow((features - c[k,:]),2),dim = 1)
+            new_id = torch.argsort(distance,dim = 1)[:,0].type(torch.int32)
+        if torch.sum(torch.abs(f_id-new_id))==0:
+            break
+        else:
+            f_id=new_id
+            
+    for k in range(groups):
+        id_size[k] = torch.sum(f_id==k)
+        
+    print('id_size=',id_size.type(torch.int32))
+    print(np.where(id_size.cpu()!=0)[0].shape)
+    
+    return f_id, c, id_size
