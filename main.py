@@ -712,13 +712,8 @@ if __name__ == '__main__':
                 # opts.train.mode = 'openfew'
                 # opts.train.batch_size_test = 1
 
-                # best_c = 0
-                total_feature = total_episode*opts.fsl.p_base
-                features_toepisode5 = torch.zeros(total_episode*opts.fsl.p_base, 192, 4, device=opts.ctrl.device)
-                toepisode5_n = 0
-                n_samples = 0
-                features_k = torch.zeros(30000, 192, device=opts.ctrl.device) # shape=(image_number*100,64)
-                total_id_k = torch.zeros(30000, dtype=torch.int32, device=opts.ctrl.device) # group number of the image
+                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, 4, device=opts.ctrl.device)
+                labels_toepisode5 = torch.zeros(opts.fsl.p_base, 4, device=opts.ctrl.device)
 
                 for epoch in range(total_ep):
                     # DATA
@@ -726,11 +721,6 @@ if __name__ == '__main__':
                     # 基本のFSOSRの設定
                     train_db = data_loader(opts, opts_train, 'train')
                     val_db = data_loader(opts, opts_val, 'val')
-
-                    # initialization for k-means
-                    # dim(パッチの数: N, 特徴次元: 192, ５エポック: 4)
-                    # features_toepisode5 = torch.zeros(train_db.__len__(), 192, 4)
-                    # print(features_toepisode5.shape)
 
                     # adjust learning rate
                     old_lr = optimizer.param_groups[0]['lr']
@@ -743,45 +733,60 @@ if __name__ == '__main__':
                     
                     # バッチの数(1*)だけ繰り返す。
                     for step, batch in enumerate(train_db):
+                        # initialization for k-means
+                        toepisode5_n = 0
+                        n_samples = 0
+                        features_k = torch.zeros(opts.fsl.p_base, 192, device=opts.ctrl.device) # shape=(image_number*100,64)
+                        result_k = torch.zeros(opts.fsl.p_base, dtype=torch.int32, device=opts.ctrl.device) # group number of the image
                         # (0,1,2)*(100)+(1~100)
                         episode = epoch*opts.fsl.iterations + step + 1
                         opts.logger("episode: {}".format(episode))
+
                         # adjust loss scale
                         update_loss_scale(opts, episode)
-
                         # ネットにバッチを入力してロスを取得。
                         loss, feature_k = net(batch, opts_train, train=True)
+                        print('feature_k size', feature_k.shape)
 
                         if opts.train.kmeans:
                             # clustering for first time
                             if episode == 5:
+                                print('features_toepisode5', features_toepisode5.size())
                                 features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*4,192) # shape=(image_number*100*4,64)
+                                # クラスタ数kを求める
+                                unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*4))
+                                k_toepisode5 = len(unique_labels_toepisode5)
+                                print('k_toepisode =',k_toepisode5)
                                 # クラスタ中心を求める
-                                _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes) # shape=(groups,192)
-
-                            # 入力パッチから特徴量を抽出
+                                _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes, device=opts.ctrl.device) # shape=(groups,192)
+                            # 入力から特徴量を抽出、エピソードを構成しているラベルを格納
                             if episode < 5:
                                 features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-1] = feature_k.data
+                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-1] = batch[1][-opts.fsl.p_base:]
+                                print('target base', batch[1][-opts.fsl.p_base:])
                                 toepisode5_n += feature_k.shape[0]
                             elif episode > 5 and episode % 5 == 0:
                                 # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
                                 distance_k = torch.sum(torch.pow((feature_k.expand(best_c.shape[0],feature_k.shape[0],feature_k.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
                                 # 各パッチのクラスタ割り当て結果を格納
-                                y_id_64 = torch.argsort(distance_k, dim=1)[:,0].type(torch.int32)
+                                y_id = torch.argsort(distance_k, dim=1)[:,0].type(torch.int32)
                                 # 抽出された特徴量とクラスタ割り当て結果を格納
-                                features_k[n_samples:(n_samples+feature_k.shape[0])] = feature_k.data
-                                total_id_k[n_samples:(n_samples+feature_k.shape[0])] = y_id_64
-                                
-                                n_samples += feature_k.shape[0]
+                                features_k = feature_k.data
+                                result_k = y_id
                                 
                                 # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
                                 loss_kmeans = distance_k.min(dim=1).values.mean()
 
                                 loss += loss_kmeans
 
-                            if episode % 5 == 0:
-                                print('best_c', best_c)
-                                _, best_c, id_size_64 = k_center_simple(features_k, total_id_k, best_c, 28, opts.ctrl.device)
+                                unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
+                                k = len(unique_labels)
+                                print('k =', k)
+                                print('result_k', result_k)
+                                print('best_c', best_c.size())
+                                print('features_k', features_k.size())
+                                new_result, best_c, _ = k_center_simple(features_k, result_k, best_c, groups=opts.model.num_classes, device=opts.ctrl.device)
+                                print('new result:',new_result)
 
                         total_loss += loss.item()
                         # ロスでネットを更新
