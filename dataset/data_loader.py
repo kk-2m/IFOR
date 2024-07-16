@@ -1,7 +1,5 @@
 from torch.utils.data import DataLoader
 import csv
-from dataset.miniimagenet import miniImagenet
-from dataset.sampler import MetaSampler
 from dataset.sampler_ifor import MetaSampler_IFOR
 from dataset.wcs_color import colorWCS
 from dataset.wcs_infrared import infraredWCS

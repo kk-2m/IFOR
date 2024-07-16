@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from utils.nearest_neighbor import k_center
 
 from core.feat import feat_extract, BasicBlock, conv1x1
 
@@ -37,6 +38,7 @@ class OpenNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.sm = nn.Softmax(dim=1)
 
+        # 分類損失を求めるために特徴量を尤度に落とすために用いる
         self.fc = nn.Linear(384 * self.block_expansion, self.num_classes)
 
         if opts.train.mode == 'openfew':
@@ -159,6 +161,9 @@ class OpenNet(nn.Module):
         query_amount = int(n_way * m_query / fold)
         # 75
         open_amount = int(open_cls * open_sample / fold)
+
+        features = torch.zeros(self.num_classes, 192, device=self.opts.ctrl.device) # shape=(image_number*100,64)
+        total_id = torch.zeros(self.num_classes, dtype=torch.int32, device=self.opts.ctrl.device) # group number of the image
 
         # FEATURE EXTRACTION
         # x_allは特徴抽出した結果のすべて
@@ -286,11 +291,10 @@ class OpenNet(nn.Module):
             # 追加
             # dist_few = dist_few.squeeze(0)
             
+            ## FSL損失
             # クエリセットのみの距離を格納
             dist_few_few = dist_few[:query_amount, :]
             # print("dist_few_few",dist_few_few)
-            
-            ## FSL損失
             # クロスエントロピー損失関数（cel_all）
             # クエリセットの予測結果をGTと比較して損失をとっている
             l_few = self.cel_all(dist_few_few, target_query)
@@ -305,11 +309,13 @@ class OpenNet(nn.Module):
                 dist_few_open = dist_few[query_amount:query_amount+open_amount, :]
                 # 各要素に対するソフトマックスと対数ソフトマックスを計算
                 # 各サンプルのクラス確率分布と対数確率分布が計算される
+                # クラス確率分布と対数確率分布を要素ごとの積をとり、各サンプルの各クラスに対するエントロピーコストを計算
                 loss_open = F.softmax(dist_few_open, dim=1) * F.log_softmax(dist_few_open, dim=1)
-                # クラス確率分布と対数確率分布を要素ごとに掛け算し、各サンプルに対するエントロピーコストを計算
+                # 列に沿って(横方向に)足し合わせることによって、各サンプルに対するエントロピーコストを計算
                 loss_open = loss_open.sum(dim=1)
                 # エントロピーコストの平均を計算
                 l_open = loss_open.mean()
+                print("l_open",l_open)
             # 使わない場合０を代入
             else:
                 l_open = torch.tensor([0])
@@ -317,10 +323,10 @@ class OpenNet(nn.Module):
             # defaulでtrue
             # 補助タスクに関する損失計算
             if self.opts.model.structure == "resnet":
+                target_base = target[support_amount+query_amount+open_amount:]
+                # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
+                base_mu = x_mu[support_amount+query_amount+open_amount:, :, :, :]
                 if self.opts.train.aux:
-                    target_base = target[support_amount+query_amount+open_amount:]
-                    # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
-                    base_mu = x_mu[support_amount+query_amount+open_amount:, :, :, :]
                     # print("base_mu1",base_mu.size())
                     # 平均プーリングを実行し、特徴量の平均値を計算
                     dist_base = self.avgpool(base_mu)
@@ -345,16 +351,16 @@ class OpenNet(nn.Module):
                 else:
                     l_aux = torch.tensor([0])
             elif self.opts.model.structure == "vit":
+                target_base = target[support_amount+query_amount+open_amount:]
+                # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
+                # 補助タスクとは分類損失をとるために、support-set, query-set, open-setを用いて、分類問題を解くタスク
+                # 実質dist_baseとして扱える
+                base_mu = x_mu[support_amount+query_amount+open_amount:,:]
+                # print("base_mu1",base_mu.size())
+                base_size, feat_size = base_mu.size()
+                # print("base_mu",base_mu.size())
+                # print("base_mu", base_mu)
                 if self.opts.train.aux:
-                    target_base = target[support_amount+query_amount+open_amount:]
-                    # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
-                    # 補助タスクとは分類損失をとるために、support-set, query-set, open-setを用いて、分類問題を解くタスク
-                    # 実質dist_baseとして扱える
-                    base_mu = x_mu[support_amount+query_amount+open_amount:,:]
-                    # print("base_mu1",base_mu.size())
-                    base_size, feat_size = base_mu.size()
-                    print("base_mu",base_mu.size())
-                    print("base_mu", base_mu)
                     # ニューラルネットワークの全結合層 self.fc を使用して、補助タスクの予測を行います。
                     # ViTで特徴抽出 -> 全結合層を用いて予測を行う
                     cls_pred = self.fc(base_mu)
@@ -362,6 +368,7 @@ class OpenNet(nn.Module):
 
                     # クロスエントロピー損失関数（cel_all）を使用して、補助タスクの損失 l_aux を計算
                     l_aux = self.cel_all(cls_pred, target_base)
+                    print("l_aux",l_aux)
                 else:
                     l_aux = torch.tensor([0])
 
@@ -374,7 +381,7 @@ class OpenNet(nn.Module):
             else:
                 loss = l_few
 
-            return loss
+            return loss, base_mu
 
         else:
             # TEST
@@ -729,3 +736,29 @@ class OpenNet(nn.Module):
     #                             norm_layer=norm_layer))
 
     #     return nn.Sequential(*layers)
+
+# クラスタ中心を更新する関数
+def k_center_simple(features, f_id, c, groups:int, device="cpu"):
+    id_size = torch.zeros(groups, device=device)
+    distance = torch.zeros([features.shape[0],groups], device=device)
+
+    for epoch in range(40):
+        for k in range(groups):
+            id_size[k] = torch.sum(f_id==k)
+            if id_size[k] != 0:
+                c[k,:] = torch.mean(features[f_id==k,:],dim=0)
+        for k in range(groups):
+            distance[:,k] = torch.sum(torch.pow((features - c[k,:]),2),dim = 1)
+            new_id = torch.argsort(distance,dim = 1)[:,0].type(torch.int32)
+        if torch.sum(torch.abs(f_id-new_id))==0:
+            break
+        else:
+            f_id=new_id
+            
+    for k in range(groups):
+        id_size[k] = torch.sum(f_id==k)
+        
+    print('id_size=',id_size.type(torch.int32))
+    print(np.where(id_size.cpu()!=0)[0].shape)
+    
+    return f_id, c, id_size

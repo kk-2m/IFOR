@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 from core.model import OpenNet
 from dataset.data_loader import data_loader
 from core.config import Config
-from core.workflow import run_validation, run_test, create_runtime_opts, save_model, update_loss_scale
+from core.workflow import run_validation, run_test, create_runtime_opts, save_model, update_loss_scale, to_device
 
 # ここから追加分(ViT)
 from core.models import get_model
@@ -23,6 +23,7 @@ import sys
 #ここから追加（自分）
 import time
 from utils.csv_util import get_directory_structure, get_image_paths
+from utils.nearest_neighbor import k_center, k_center_simple
 
 from timm.data import Mixup
 from timm.utils import NativeScaler, get_state_dict, ModelEma
@@ -704,8 +705,15 @@ if __name__ == '__main__':
                 loss_episode = 0
                 total_loss = 0.0
                 # 3回繰り返す
+                # # k-meansとsvmの実行
+                # opts.train.mode = 'regular'
+                # opts.train.batch_size_test = 25
+                # train_kmeans_db = data_loader(opts, opts_train, 'train')
+                # opts.train.mode = 'openfew'
+                # opts.train.batch_size_test = 1
 
-
+                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, opts.train.kmeans_ep-1, device=opts.ctrl.device)
+                labels_toepisode5 = torch.zeros(opts.fsl.p_base, opts.train.kmeans_ep-1, device=opts.ctrl.device)
 
                 for epoch in range(total_ep):
                     # DATA
@@ -722,17 +730,73 @@ if __name__ == '__main__':
                     new_lr = optimizer.param_groups[0]['lr']
                     if new_lr != old_lr:
                         opts.logger('LR changes from {:.8f} to {:.8f} at episode {:d}\n'.format(old_lr, new_lr, epoch*opts.fsl.iterations))
+                    
                     # バッチの数(1*)だけ繰り返す。
                     for step, batch in enumerate(train_db):
-                        # fsl.iterations = 100:
-
+                        # initialization for k-means
+                        toepisode5_n = 0
+                        n_samples = 0
+                        features_k = torch.zeros(opts.fsl.p_base, 192, device=opts.ctrl.device) # shape=(image_number*100,64)
+                        result_k = torch.zeros(opts.fsl.p_base, dtype=torch.int32, device=opts.ctrl.device) # group number of the image
                         # (0,1,2)*(100)+(1~100)
-                        episode = epoch*opts.fsl.iterations + step
+                        episode = epoch*opts.fsl.iterations + step + 1
+                        opts.logger("episode: {}".format(episode))
 
                         # adjust loss scale
                         update_loss_scale(opts, episode)
                         # ネットにバッチを入力してロスを取得。
-                        loss = net(batch, opts_train, True)
+                        loss, feature_k = net(batch, opts_train, train=True)
+                        # print('feature_k size', feature_k.shape)
+
+                        if opts.train.kmeans:
+                            # clustering for first time
+                            if episode == opts.train.kmeans_ep:
+                                # print('features_toepisode5', features_toepisode5.size())
+                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep-1),192) # shape=(image_number*100*4,64)
+                                # クラスタ数kを求める
+                                unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*(opts.train.kmeans_ep-1)))
+                                k_toepisode5 = len(unique_labels_toepisode5)
+                                # print('k_toepisode =',k_toepisode5)
+                                # クラスタ中心を求める
+                                _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes, device=opts.ctrl.device) # shape=(groups,192)
+                            # 入力から特徴量を抽出、エピソードを構成しているラベルを格納
+                            if episode < opts.train.kmeans_ep:
+                                features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-1] = feature_k.data
+                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-1] = batch[1][-opts.fsl.p_base:]
+                                # print('target base', batch[1][-opts.fsl.p_base:])
+                                toepisode5_n += feature_k.shape[0]
+                            elif episode > opts.train.kmeans_ep and episode % opts.train.kmeans_ep == 0:
+                                # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
+                                distance_k = torch.sum(torch.pow((feature_k.expand(best_c.shape[0],feature_k.shape[0],feature_k.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
+                                # 各パッチのクラスタ割り当て結果を格納
+                                y_id = torch.argsort(distance_k, dim=1)[:,0].type(torch.int32)
+                                # 抽出された特徴量とクラスタ割り当て結果を格納
+                                features_k = feature_k.data
+                                result_k = y_id
+                                
+                                # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
+                                loss_kmeans = distance_k.min(dim=1).values.mean()
+                                print("loss_kmeans",loss_kmeans)
+                                
+                                
+
+                                unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
+                                k = len(unique_labels)
+                                # print('k =', k)
+                                # print('result_k', result_k)
+                                # print('best_c', best_c.size())
+                                # print('features_k', features_k.size())
+                                new_result, best_c, _ = k_center_simple(features_k, result_k, best_c, groups=opts.model.num_classes, device=opts.ctrl.device)
+                                # print('new result:',new_result)
+
+                                distance_matrix = torch.cdist(best_c, best_c)
+                                loss_saidai = -torch.mean(distance_matrix)
+                                print("loss_saidai", loss_saidai)
+
+                                loss += loss_kmeans/loss_saidai
+
+
+
                         total_loss += loss.item()
                         # ロスでネットを更新
                         optimizer.zero_grad()
