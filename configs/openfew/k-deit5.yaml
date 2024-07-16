@@ -26,7 +26,7 @@ model:
     fold_test: 1
 io:
     root: 'output'
-    exp_name: 'try_kmeans'
+    exp_name: 'k-deit5'
 ctrl:
     gpu_id: 0
     ep_save: 500
@@ -34,7 +34,7 @@ ctrl:
     ep_val: 500
 train:
     nep: 3
-    lr: 0.00001 # 0.001
+    lr: 0.000001 # 0.001
     weight_decay: 0.0
     lr_scheduler: [1, 2]
     lr_gamma: 0.1
@@ -43,6 +43,9 @@ train:
     open_detect: 'center' # gauss
     entropy: True #true
     aux: True #true
+    kmeans: True
+    # k-means lossを求めるepisodeの間隔
+    kmeans_ep: 250
     loss_scale_entropy_lut: [[30000], [0.5]]
     loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
 fsl:

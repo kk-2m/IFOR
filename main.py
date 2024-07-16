@@ -712,8 +712,8 @@ if __name__ == '__main__':
                 # opts.train.mode = 'openfew'
                 # opts.train.batch_size_test = 1
 
-                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, 4, device=opts.ctrl.device)
-                labels_toepisode5 = torch.zeros(opts.fsl.p_base, 4, device=opts.ctrl.device)
+                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, opts.train.kmeans_ep-1, device=opts.ctrl.device)
+                labels_toepisode5 = torch.zeros(opts.fsl.p_base, opts.train.kmeans_ep-1, device=opts.ctrl.device)
 
                 for epoch in range(total_ep):
                     # DATA
@@ -746,26 +746,26 @@ if __name__ == '__main__':
                         update_loss_scale(opts, episode)
                         # ネットにバッチを入力してロスを取得。
                         loss, feature_k = net(batch, opts_train, train=True)
-                        print('feature_k size', feature_k.shape)
+                        # print('feature_k size', feature_k.shape)
 
                         if opts.train.kmeans:
                             # clustering for first time
-                            if episode == 5:
-                                print('features_toepisode5', features_toepisode5.size())
-                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*4,192) # shape=(image_number*100*4,64)
+                            if episode == opts.train.kmeans_ep:
+                                # print('features_toepisode5', features_toepisode5.size())
+                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep-1),192) # shape=(image_number*100*4,64)
                                 # クラスタ数kを求める
-                                unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*4))
+                                unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*(opts.train.kmeans_ep-1)))
                                 k_toepisode5 = len(unique_labels_toepisode5)
-                                print('k_toepisode =',k_toepisode5)
+                                # print('k_toepisode =',k_toepisode5)
                                 # クラスタ中心を求める
                                 _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes, device=opts.ctrl.device) # shape=(groups,192)
                             # 入力から特徴量を抽出、エピソードを構成しているラベルを格納
-                            if episode < 5:
+                            if episode < opts.train.kmeans_ep:
                                 features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-1] = feature_k.data
                                 labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-1] = batch[1][-opts.fsl.p_base:]
-                                print('target base', batch[1][-opts.fsl.p_base:])
+                                # print('target base', batch[1][-opts.fsl.p_base:])
                                 toepisode5_n += feature_k.shape[0]
-                            elif episode > 5 and episode % 5 == 0:
+                            elif episode > opts.train.kmeans_ep and episode % opts.train.kmeans_ep == 0:
                                 # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
                                 distance_k = torch.sum(torch.pow((feature_k.expand(best_c.shape[0],feature_k.shape[0],feature_k.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
                                 # 各パッチのクラスタ割り当て結果を格納
@@ -776,17 +776,26 @@ if __name__ == '__main__':
                                 
                                 # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
                                 loss_kmeans = distance_k.min(dim=1).values.mean()
-
-                                loss += loss_kmeans
+                                print("loss_kmeans",loss_kmeans)
+                                
+                                
 
                                 unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
                                 k = len(unique_labels)
-                                print('k =', k)
-                                print('result_k', result_k)
-                                print('best_c', best_c.size())
-                                print('features_k', features_k.size())
+                                # print('k =', k)
+                                # print('result_k', result_k)
+                                # print('best_c', best_c.size())
+                                # print('features_k', features_k.size())
                                 new_result, best_c, _ = k_center_simple(features_k, result_k, best_c, groups=opts.model.num_classes, device=opts.ctrl.device)
-                                print('new result:',new_result)
+                                # print('new result:',new_result)
+
+                                distance_matrix = torch.cdist(best_c, best_c)
+                                loss_saidai = -torch.mean(distance_matrix)
+                                print("loss_saidai", loss_saidai)
+
+                                loss += loss_kmeans/loss_saidai
+
+
 
                         total_loss += loss.item()
                         # ロスでネットを更新

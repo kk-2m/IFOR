@@ -37,6 +37,7 @@ def k_center(features, groups:int, device="cuda"):
     # 最良のクラスタ割り当てに基づいて、各クラスタのサイズを計算
     for k in range(groups):
         id_size[k] = torch.sum(best_id==k)
+    print('best_c', best_c)
     return best_id, best_c
 
 # クラスタ中心を更新する関数
@@ -48,6 +49,7 @@ def k_center_simple(features, f_id, c, groups:int, device="cpu"):
 		for k in range(groups):
 			id_size[k] = torch.sum(f_id==k)
 			if id_size[k] != 0:
+                # 各特徴次元方向に対して平均を求める
 				c[k,:] = torch.mean(features[f_id==k,:],dim=0)
 		for k in range(groups):
 			distance[:,k] = torch.sum(torch.pow((features - c[k,:]),2),dim = 1)
@@ -59,7 +61,8 @@ def k_center_simple(features, f_id, c, groups:int, device="cpu"):
 			
 	for k in range(groups):
 		id_size[k] = torch.sum(f_id==k)
-		
+
+	print('c', c)
 	print('id_size=',id_size.type(torch.int32))
 	print(np.where(id_size.cpu()!=0)[0].shape)
 	
