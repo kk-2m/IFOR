@@ -26,7 +26,7 @@ model:
     fold_test: 1
 io:
     root: 'output'
-    exp_name: 'k-deit3-4'
+    exp_name: 'tk-deit3'
 ctrl:
     gpu_id: 0
     ep_save: 500
