@@ -745,9 +745,10 @@ if __name__ == '__main__':
                         # adjust loss scale
                         update_loss_scale(opts, episode)
                         # ネットにバッチを入力してロスを取得。
-                        loss, feature_k = net(batch, opts_train, train=True)
+                        loss, feature_k, log_loss = net(batch, opts_train, train=True)
+                        [opts.logger("{}: {}".format(key, value)) for key, value in log_loss.items()]
                         # print('feature_k size', feature_k.shape)
-                        timing = 5000
+                        timing = 0
 
                         if opts.train.kmeans and episode > timing:
                             # clustering for first time
@@ -777,9 +778,10 @@ if __name__ == '__main__':
                                 
                                 # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
                                 loss_kmeans = distance_k.min(dim=1).values.mean()
-                                print("loss_kmeans",loss_kmeans)
+                                opts.logger("loss_kmeans: {}".format(loss_kmeans))
+                                # print("loss_kmeans",loss_kmeans)
 
-                                loss += loss_kmeans
+                                # loss += loss_kmeans
 
                                 unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
                                 k = len(unique_labels)
@@ -791,10 +793,20 @@ if __name__ == '__main__':
                                 # print('new result:',new_result)
 
                                 distance_matrix = torch.cdist(best_c, best_c)
-                                loss_saidai = -torch.mean(distance_matrix)
-                                print("loss_saidai", loss_saidai)
+                                # loss_bc_pos = 1/torch.mean(distance_matrix)
+                                # opts.logger("loss_between-class positive: {}".format(loss_bc_pos))
+                                loss_bc_neg = -torch.mean(distance_matrix)
+                                opts.logger("loss_between-class negative: {}".format(loss_bc_neg))
 
-                                # loss += loss_kmeans/loss_saidai
+                                # loss += loss_bc_pos
+                                loss += loss_bc_neg
+                                # loss += loss_kmeans*loss_bc_pos
+                                # loss += loss_kmeans + loss_bc_pos
+                                # loss += loss_kmeans + loss_bc_neg
+                                # bad loss
+                                # loss += loss_bc_neg
+                                # loss += loss_kmeans/loss_bc_neg
+                                # loss += loss_kmeans + (1/loss_bc_neg)
 
                         total_loss += loss.item()
                         # ロスでネットを更新

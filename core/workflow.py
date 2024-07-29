@@ -21,6 +21,7 @@ def roc_area_calc(args, dist, closed, descending, total_height, total_width):
         # print("cosine-distance")
         _, p = dist.sort(descending=False)
 
+    # 並べ替えられた順番に基づいたラベルを格納
     closed_p = closed[p]
 
     height = 0.0
@@ -43,6 +44,7 @@ def roc_area_calc(args, dist, closed, descending, total_height, total_width):
     if pre == 0:
         area += height * width
 
+    # 面積の正規化
     area = area / total_height / total_width
     return area
 
