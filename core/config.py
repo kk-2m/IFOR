@@ -81,8 +81,12 @@ class Config(object):
 
     train.loss_scale_entropy = 0.0
     train.loss_scale_aux = 0.0
+    train.loss_scale_kmeans = 0.0
+    train.loss_scale_bc = 0.0
     train.loss_scale_entropy_lut = [[30000], [0.5]]
     train.loss_scale_aux_lut = [[5000, 10000, 20000], [0.5, 0.3, 0.1]]
+    train.loss_scale_kmeans_lut = [[30000], [0.1]]
+    train.loss_scale_bc_lut = [[30000], [0.5]]
 
     # ==============
     fsl = AttrDict()

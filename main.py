@@ -781,7 +781,7 @@ if __name__ == '__main__':
                                 opts.logger("loss_kmeans: {}".format(loss_kmeans))
                                 # print("loss_kmeans",loss_kmeans)
 
-                                # loss += loss_kmeans
+                                # loss += loss_kmeans * opts.train.loss_scale_bc
 
                                 unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
                                 k = len(unique_labels)
@@ -798,15 +798,15 @@ if __name__ == '__main__':
                                 loss_bc_neg = -torch.mean(distance_matrix)
                                 opts.logger("loss_between-class negative: {}".format(loss_bc_neg))
 
-                                # loss += loss_bc_pos
-                                loss += loss_bc_neg
-                                # loss += loss_kmeans*loss_bc_pos
-                                # loss += loss_kmeans + loss_bc_pos
-                                # loss += loss_kmeans + loss_bc_neg
+                                # loss += loss_bc_pos * opts.train.loss_scale_bc
+                                loss += loss_bc_neg * opts.train.loss_scale_bc
+                                # loss += loss_kmeans*loss_bc_pos * opts.train.loss_scale_bc
+                                # loss += loss_kmeans + loss_bc_pos * opts.train.loss_scale_bc
+                                # loss += loss_kmeans + loss_bc_neg * opts.train.loss_scale_bc
                                 # bad loss
-                                # loss += loss_bc_neg
-                                # loss += loss_kmeans/loss_bc_neg
-                                # loss += loss_kmeans + (1/loss_bc_neg)
+                                # loss += loss_bc_neg * opts.train.loss_scale_bc
+                                # loss += loss_kmeans/loss_bc_neg * opts.train.loss_scale_bc
+                                # loss += loss_kmeans + (1/loss_bc_neg * opts.train.loss_scale_bc)
 
                         total_loss += loss.item()
                         # ロスでネットを更新

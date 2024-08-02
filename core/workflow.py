@@ -76,6 +76,18 @@ def update_loss_scale(opts, episode):
         if episode < opts.train.loss_scale_aux_lut[0][i]:
             opts.train.loss_scale_aux = opts.train.loss_scale_aux_lut[1][i]
             break
+    # 30000
+    for i in range(len(opts.train.loss_scale_kmeans_lut[0])):
+        if episode < opts.train.loss_scale_kemans_lut[0][i]:
+            # default 0.1
+            opts.train.loss_scale_kmeans = opts.train.loss_scale_kmeans_lut[1][i]
+            break
+    # 30000
+    for i in range(len(opts.train.loss_scale_bc_lut[0])):
+        if episode < opts.train.loss_scale_bc_lut[0][i]:
+            # default 0.5
+            opts.train.loss_scale_bc = opts.train.loss_scale_bc_lut[1][i]
+            break
 
 
 def save_model(opts, net, optimizer, scheduler, episode, save_file):
