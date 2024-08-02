@@ -46,7 +46,7 @@ train:
     kmeans: True
     # k-means lossを求めるepisodeの間隔
     kmeans_ep: 250
-    loss_scale_entropy_lut: [[30000], [0.5]]
+    loss_scale_entropy_lut: [[10000, 20000, 30000], [0.5, 0.2, 0]]
     loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
 fsl:
     n_way: 5

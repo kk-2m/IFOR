@@ -736,7 +736,7 @@ if __name__ == '__main__':
                         # initialization for k-means
                         toepisode5_n = 0
                         n_samples = 0
-                        features_k = torch.zeros(opts.fsl.p_base, 192, device=opts.ctrl.device) # shape=(image_number*100,64)
+                        features_k = torch.zeros(opts.fsl.p_base, 192, device=opts.ctrl.device) # shape=(image_number,192)
                         result_k = torch.zeros(opts.fsl.p_base, dtype=torch.int32, device=opts.ctrl.device) # group number of the image
                         # (0,1,2)*(100)+(1~100)
                         episode = epoch*opts.fsl.iterations + step + 1
@@ -745,14 +745,16 @@ if __name__ == '__main__':
                         # adjust loss scale
                         update_loss_scale(opts, episode)
                         # ネットにバッチを入力してロスを取得。
-                        loss, feature_k = net(batch, opts_train, train=True)
+                        loss, feature_k, log_loss = net(batch, opts_train, train=True)
+                        [opts.logger("{}: {}".format(key, value)) for key, value in log_loss.items()]
                         # print('feature_k size', feature_k.shape)
+                        timing = 0
 
-                        if opts.train.kmeans:
+                        if opts.train.kmeans and episode > timing:
                             # clustering for first time
-                            if episode == opts.train.kmeans_ep:
+                            if episode == opts.train.kmeans_ep+timing:
                                 # print('features_toepisode5', features_toepisode5.size())
-                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep-1),192) # shape=(image_number*100*4,64)
+                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep-1),192) # shape=(image_number*kmeans_ep,192)
                                 # クラスタ数kを求める
                                 unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*(opts.train.kmeans_ep-1)))
                                 k_toepisode5 = len(unique_labels_toepisode5)
@@ -760,12 +762,12 @@ if __name__ == '__main__':
                                 # クラスタ中心を求める
                                 _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes, device=opts.ctrl.device) # shape=(groups,192)
                             # 入力から特徴量を抽出、エピソードを構成しているラベルを格納
-                            if episode < opts.train.kmeans_ep:
-                                features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-1] = feature_k.data
-                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-1] = batch[1][-opts.fsl.p_base:]
+                            if episode < opts.train.kmeans_ep+timing:
+                                features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-timing-1] = feature_k.data
+                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-timing-1] = batch[1][-opts.fsl.p_base:]
                                 # print('target base', batch[1][-opts.fsl.p_base:])
                                 toepisode5_n += feature_k.shape[0]
-                            elif episode > opts.train.kmeans_ep and episode % opts.train.kmeans_ep == 0:
+                            elif episode > opts.train.kmeans_ep+timing and episode % opts.train.kmeans_ep == 0:
                                 # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
                                 distance_k = torch.sum(torch.pow((feature_k.expand(best_c.shape[0],feature_k.shape[0],feature_k.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
                                 # 各パッチのクラスタ割り当て結果を格納
@@ -776,9 +778,10 @@ if __name__ == '__main__':
                                 
                                 # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
                                 loss_kmeans = distance_k.min(dim=1).values.mean()
-                                print("loss_kmeans",loss_kmeans)
-                                
-                                
+                                opts.logger("loss_kmeans: {}".format(loss_kmeans))
+                                # print("loss_kmeans",loss_kmeans)
+
+                                # loss += loss_kmeans * opts.train.loss_scale_bc
 
                                 unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
                                 k = len(unique_labels)
@@ -790,12 +793,20 @@ if __name__ == '__main__':
                                 # print('new result:',new_result)
 
                                 distance_matrix = torch.cdist(best_c, best_c)
-                                loss_saidai = -torch.mean(distance_matrix)
-                                print("loss_saidai", loss_saidai)
+                                # loss_bc_pos = 1/torch.mean(distance_matrix)
+                                # opts.logger("loss_between-class positive: {}".format(loss_bc_pos))
+                                loss_bc_neg = -torch.mean(distance_matrix)
+                                opts.logger("loss_between-class negative: {}".format(loss_bc_neg))
 
-                                loss += loss_kmeans/loss_saidai
-
-
+                                # loss += loss_bc_pos * opts.train.loss_scale_bc
+                                loss += loss_bc_neg * opts.train.loss_scale_bc
+                                # loss += loss_kmeans*loss_bc_pos * opts.train.loss_scale_bc
+                                # loss += loss_kmeans + loss_bc_pos * opts.train.loss_scale_bc
+                                # loss += loss_kmeans + loss_bc_neg * opts.train.loss_scale_bc
+                                # bad loss
+                                # loss += loss_bc_neg * opts.train.loss_scale_bc
+                                # loss += loss_kmeans/loss_bc_neg * opts.train.loss_scale_bc
+                                # loss += loss_kmeans + (1/loss_bc_neg * opts.train.loss_scale_bc)
 
                         total_loss += loss.item()
                         # ロスでネットを更新

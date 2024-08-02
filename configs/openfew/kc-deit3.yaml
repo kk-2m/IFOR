@@ -26,7 +26,7 @@ model:
     fold_test: 1
 io:
     root: 'output'
-    exp_name: 'kco-deit3'
+    exp_name: 'kc2-deit3'
 ctrl:
     gpu_id: 0
     ep_save: 500
@@ -45,9 +45,11 @@ train:
     aux: False #true
     kmeans: True
     # k-means lossを求めるepisodeの間隔
-    kmeans_ep: 250
+    kmeans_ep: 0
     loss_scale_entropy_lut: [[30000], [0.5]]
     loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
+    loss_scale_kmenas_lut: [[30000], [0.5]]
+    loss_scale_bc_lut: [[30000], [0.5]]
 fsl:
     n_way: 5
     n_way_val: 5

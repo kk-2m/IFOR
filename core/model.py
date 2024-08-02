@@ -371,17 +371,20 @@ class OpenNet(nn.Module):
                     print("l_aux",l_aux)
                 else:
                     l_aux = torch.tensor([0])
-
             if self.opts.train.entropy and self.opts.train.aux:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux
+                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux}
             elif self.opts.train.entropy:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy
+                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy}
             elif self.opts.train.aux:
                 loss = l_few + l_aux * self.opts.train.loss_scale_aux
+                log_loss = {'l_few': l_few, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux}
             else:
                 loss = l_few
+                log_loss = {'l_few': l_few}
 
-            return loss, base_mu
+            return loss, base_mu, log_loss
 
         else:
             # TEST
