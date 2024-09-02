@@ -17,12 +17,14 @@ class MetaSampler_IFOR(torch.utils.data.sampler.Sampler):
         self.p_base = opts_runtime.p_base
         # 5
         self.open_cls = opts_runtime.open_cls
+        # 1
+        self.open_shot = opts_runtime.open_shot
         # 15
         self.open_sample = opts_runtime.open_sample
         # 1
         self.fold = opts_runtime.fold
         self.train = train
-        # train_test + testのサンプルリスト
+        # 各クラスに属するサンプルのリスト
         self.n_sample_list = dataset.n_sample_list
         # if train:
         if True:
@@ -57,9 +59,10 @@ class MetaSampler_IFOR(torch.utils.data.sampler.Sampler):
 
     def __iter__(self):
         for it in range(self.iterations):
-            batch_s = torch.zeros(self.n_way * self.k_shot)
-            batch_q = torch.zeros(self.n_way * self.m_query)
-            batch_open = torch.zeros(self.open_cls * self.open_sample)
+            batch_closed_s = torch.zeros(self.n_way * self.k_shot)
+            batch_closed_q = torch.zeros(self.n_way * self.m_query)
+            batch_open_s = torch.zeros(self.open_cls * self.open_shot)
+            batch_open_q = torch.zeros(self.open_cls * self.open_sample)
             # クラスをランダムに書き換える。0~n_cls(train(28), test(11))までの整数のリストをランダムに並び替える
             cls_all = torch.from_numpy(np.random.permutation(self.n_cls))
             # FSL用のクラスをn_way(5)選択
@@ -68,30 +71,36 @@ class MetaSampler_IFOR(torch.utils.data.sampler.Sampler):
             cls_open = cls_all[self.n_way: self.n_way + self.open_cls]
             # FSLのn_shot(1)を選択する。サポートとクエリーを取得し、バッチにして
             for c in range(self.n_way):
-                # テスト時ならbaseの分も追加する。
+                # 学習時ならbaseの分も追加する。
                 # n_sample_list: 各クラスに属するサンプルの数をリスト
                 # cls_fsl: ランダムに選ばれた self.n_way のクラスを示すリスト
                 # 現在のクラスのサンプル数を取得
                 # item() メソッドでPythonの組み込み型(int)として取得する
                 # test(100)
                 n_sample = int(self.n_sample_list[cls_fsl[c]+self.base_cls].item())
-                # クラス内画像をランダムにする
-                # リストに16個（k_shot: 1, m_query: 15）の要素が格納される
+                # クラス内の画像順をランダムにする
+                # samplesリストにはn_sampleから選択された16個（k_shot: 1, m_query: 15）の画像サンプルが格納される
                 samples = np.random.permutation(n_sample)[:self.k_shot + self.m_query]
-                # サポートをカテゴリーからk_shot選択
+                # サポートをカテゴリーからk_shotサンプルを選択
                 supports = samples[:self.k_shot]
-                # それ以外からk_shot選択
+                # それ以外をqueryのサンプルとする
                 querys = samples[self.k_shot:]
                 # サポートセットとクエリセットのインデックスを格納
-                batch_s[self.k_shot*c:self.k_shot*(c+1)] = torch.from_numpy(supports) + self.n_sample_list[:cls_fsl[c]+self.base_cls].sum()
-                batch_q[self.m_query*c:self.m_query*(c+1)] = torch.from_numpy(querys) + self.n_sample_list[:cls_fsl[c]+self.base_cls].sum()
+                # self.n_sample_list[:cls_fsl[c]を足すことによって、データセット全体での絶対インデックスを獲得している
+                batch_closed_s[self.k_shot*c:self.k_shot*(c+1)] = torch.from_numpy(supports) + self.n_sample_list[:cls_fsl[c]+self.base_cls].sum()
+                batch_closed_q[self.m_query*c:self.m_query*(c+1)] = torch.from_numpy(querys) + self.n_sample_list[:cls_fsl[c]+self.base_cls].sum()
             # OSRの画像を選択する
             # オープンセットクラスの数（５）だけ繰り返す
             for c in range(self.open_cls):
-                # オープンセットクラスからランダムに self.open_sample(15) 個のサンプルを選択
+                # オープンセットクラスからランダムに self.open_sample(15) 個のインデックスを選択
                 n_sample = int(self.n_sample_list[cls_open[c]+self.base_cls].item())
-                samples = np.random.permutation(n_sample)[:self.open_sample]
-                batch_open[self.open_sample*c:self.open_sample*(c+1)] = torch.from_numpy(samples) + self.n_sample_list[:cls_open[c]+self.base_cls].sum()
+                samples = np.random.permutation(n_sample)[:self.open_shot + self.open_sample]
+                # サポートをカテゴリーからk_shot選択
+                supports = samples[:self.open_shot]
+                # それ以外からk_shotをクエリのサンプルとする
+                querys = samples[self.open_shot:]
+                batch_open_s[self.open_shot*c:self.open_shot*(c+1)] = torch.from_numpy(supports) + self.n_sample_list[:cls_open[c]+self.base_cls].sum()
+                batch_open_q[self.open_sample*c:self.open_sample*(c+1)] = torch.from_numpy(querys) + self.n_sample_list[:cls_open[c]+self.base_cls].sum()
             # idx_listを結合し、0 - 1100 まで格納した1次元配列にする
             idx_all = np.concatenate(self.idx_list)
             # idx_allをランダムにシャッフルする
@@ -101,7 +110,7 @@ class MetaSampler_IFOR(torch.utils.data.sampler.Sampler):
             if self.train:
                 # idx_allの最初から self.p_base(75)未満のインデックスを抽出
                 batch_e = torch.from_numpy(idx_all[:self.p_base]).float()
-                batch = torch.cat((batch_s, batch_q, batch_open, batch_e), dim=0).long().view(-1)
+                batch = torch.cat((batch_closed_s, batch_closed_q, batch_open_q, batch_e), dim=0).long().view(-1)
                 yield batch
             # 評価
             else:
@@ -109,12 +118,12 @@ class MetaSampler_IFOR(torch.utils.data.sampler.Sampler):
                     fold_q = int(self.n_way * self.m_query / self.fold)
                     fold_open = int(self.open_cls * self.open_sample / self.fold)
                     for i in range(self.fold):
-                        batch_q_fold = batch_q[fold_q*i:fold_q*(i+1)]
-                        batch_open_fold = batch_open[fold_open*i:fold_open*(i+1)]
-                        batch = torch.cat((batch_s, batch_q_fold, batch_open_fold), dim=0).long().view(-1)
+                        batch_closed_q_fold = batch_closed_q[fold_q*i:fold_q*(i+1)]
+                        batch_open_q_fold = batch_open_q[fold_open*i:fold_open*(i+1)]
+                        batch = torch.cat((batch_closed_s, batch_open_s, batch_closed_q_fold, batch_open_q_fold), dim=0).long().view(-1)
                         yield batch
                 else:
-                    batch = torch.cat((batch_s, batch_q, batch_open), dim=0).long().view(-1)
+                    batch = torch.cat((batch_closed_s, batch_open_s, batch_closed_q, batch_open_q), dim=0).long().view(-1)
                     yield batch
 
     def __len__(self):

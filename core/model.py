@@ -146,7 +146,9 @@ class OpenNet(nn.Module):
         m_query = opts_runtime.m_query
         # 5
         open_cls = opts_runtime.open_cls
-        # 1
+        1
+        open_shot = opts_runtime.open_shot
+        # 15
         open_sample = opts_runtime.open_sample
         # 1
         aug_scale = opts_runtime.aug_scale
@@ -156,17 +158,22 @@ class OpenNet(nn.Module):
         fold = opts_runtime.fold
 
         # 5
-        support_amount = n_way * k_shot
+        closed_s_amount = n_way * k_shot
         # 75
-        query_amount = int(n_way * m_query / fold)
+        closed_q_amount = int(n_way * m_query / fold)
+        # 50
+        open_s_amount = open_cls * open_shot
         # 75
-        open_amount = int(open_cls * open_sample / fold)
+        open_q_amount = int(open_cls * open_sample / fold)
+        # 55
+        support_amount = closed_s_amount + open_s_amount
 
         features = torch.zeros(self.num_classes, 192, device=self.opts.ctrl.device) # shape=(image_number*100,64)
         total_id = torch.zeros(self.num_classes, dtype=torch.int32, device=self.opts.ctrl.device) # group number of the image
 
         # FEATURE EXTRACTION
         # x_allは特徴抽出した結果のすべて
+        print('input', target)
         x_all = self.feat_net(input)
         if self.opts.train.open_detect == 'center':
             # 特徴量を格納
@@ -187,23 +194,23 @@ class OpenNet(nn.Module):
         if train:
             # TRAIN
             # 重複を削除する（サポート、クエリ、オープンから）
-            target_unique, target_fsl = self.get_fsl_target(target[:support_amount+query_amount])
+            target_unique, target_fsl = self.get_unique_target(target[:closed_s_amount+closed_q_amount])
             # # [1,2,4,3,0]
-            target_support = target_fsl[:support_amount]
+            target_closed_s = target_fsl[:closed_s_amount]
             # # [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2,
             # # 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3,
             # # 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             # # 0, 0, 0]
-            target_query = target_fsl[support_amount:support_amount+query_amount]
+            target_closed_q = target_fsl[closed_s_amount:closed_s_amount+closed_q_amount]
             # print("target_fsl:", target_fsl)
-            # print("target_support:", target_support)
-            # print("target_query:", target_query.size())
+            # print("target_closed_s:", target_closed_s)
+            # print("target_closed_q:", target_closed_q.size())
             if self.opts.model.structure == "resnet":
-                support_mu = x_mu[:support_amount, :, :, :]
-                query_mu = x_mu[support_amount:support_amount+query_amount+open_amount, :, :, :]
+                support_mu = x_mu[:closed_s_amount, :, :, :]
+                query_mu = x_mu[closed_s_amount:closed_s_amount+closed_q_amount+open_q_amount, :, :, :]
                 batch_size, feat_size, feat_h, feat_w = query_mu.size()
                 # 5クラス分繰り返す, 要素インデックスを含む
-                idxs = torch.stack([(target_support == i).nonzero().squeeze() for i in range(self.opts.fsl.n_way)])
+                idxs = torch.stack([(target_closed_s == i).nonzero().squeeze() for i in range(self.opts.fsl.n_way)])
                 if len(idxs.size()) < 2:
                     idxs.unsqueeze_(1)
                 # サポート特徴量の平均を計算する
@@ -212,25 +219,25 @@ class OpenNet(nn.Module):
                 # print("query_mu_whitten1:",query_mu.size())
                 # default center
                 if self.opts.train.open_detect == 'center':
-                    mu_whitten = mu
+                    closed_s_mu_whitten = mu
                     query_mu_whitten = query_mu
-                    # print("mu_whitten:",mu_whitten.size())
+                    # print("closed_s_mu_whitten:",closed_s_mu_whitten.size())
                     # print("query_mu_whitten1:",query_mu_whitten.size())
                 else:
                     sigs = support_sigs[idxs, :, :, :].mean(dim=1)
-                    mu_whitten = torch.mul(mu, sigs)
+                    closed_s_mu_whitten = torch.mul(mu, sigs)
                     query_mu_whitten = torch.mul(query_mu.unsqueeze(1), sigs.unsqueeze(0))
                 # 操作後：[5, 512, 1, 1]
                 # サポートの特徴量をプーリングした。1x1になった。
-                # print("mu_whitten1",mu_whitten.size())
-                # mu_whitten = self.avgpool(mu_whitten)
-                # print("mu_whitten2",mu_whitten.size())
-                # print("mu_whitten:",mu_whitten.size())
+                # print("mu_whitten1",closed_s_mu_whitten.size())
+                # closed_s_mu_whitten = self.avgpool(closed_s_mu_whitten)
+                # print("mu_whitten2",closed_s_mu_whitten.size())
+                # print("closed_s_mu_whitten:",closed_s_mu_whitten.size())
                 # [5, 512]
                 # その形を整えた。
-                mu_whitten = mu_whitten.view(-1, feat_size)
-                # print("mu_whitten3",mu_whitten.size())
-                # print("mu_whitten:",mu_whitten.size())
+                closed_s_mu_whitten = closed_s_mu_whitten.view(-1, feat_size)
+                # print("mu_whitten3",closed_s_mu_whitten.size())
+                # print("closed_s_mu_whitten:",closed_s_mu_whitten.size())
                 # print("query_mu_whitten1.5:",query_mu_whitten.view(-1, feat_size, feat_h, feat_w).size())
                 # print("query_mu_whitten1",query_mu_whitten.size())
                 # query_mu_whitten = self.avgpool(query_mu_whitten.view(-1, feat_size, feat_h, feat_w))
@@ -239,22 +246,22 @@ class OpenNet(nn.Module):
                 query_mu_whitten = query_mu_whitten.view(batch_size, -1, feat_size)
                 # print("query_mu_whitten3",query_mu_whitten.size())
             elif self.opts.model.structure == "vit":
-                # mu_whittenはサポートセットの特徴量を格納
-                mu_whitten = x_all[:support_amount :]
-                # print("mu_whitten1",mu_whitten.size())
+                # closed_s_mu_whittenはサポートセットの特徴量を格納
+                closed_s_mu_whitten = x_all[:closed_s_amount :]
+                # print("mu_whitten1",closed_s_mu_whitten.size())
 
                 # 各クラスに対応するサポートセットのインデックスを取得
-                idxs = torch.stack([(target_support == i).nonzero().squeeze() for i in range(self.opts.fsl.n_way)])
+                idxs = torch.stack([(target_closed_s == i).nonzero().squeeze() for i in range(self.opts.fsl.n_way)])
                 # print("idx:",idxs)
                 if len(idxs.size()) < 2:
                     idxs.unsqueeze_(1)
                     # print("idx2:",idxs)
                 # 各クラスのプロトタイプを計算
-                mu_whitten = mu_whitten[idxs, :].mean(dim=1)
-                # print("mu_whitten2",mu_whitten.size())
+                closed_s_mu_whitten = closed_s_mu_whitten[idxs, :].mean(dim=1)
+                # print("mu_whitten2",closed_s_mu_whitten.size())
 
                 # クエリセットとオープンセットの特徴量を格納
-                query_mu_whitten = x_all[support_amount:support_amount+query_amount+open_amount,:]
+                query_mu_whitten = x_all[closed_s_amount:closed_s_amount+closed_q_amount+open_q_amount,:]
                 # print("query_mu_whitten1",query_mu_whitten.size())
 
                 batch_size, feat_size = query_mu_whitten.size()
@@ -264,17 +271,17 @@ class OpenNet(nn.Module):
                 # -1は動的に決定
                 query_mu_whitten = query_mu_whitten.view(batch_size, -1, feat_size)
                 # print("query_mu_whitten",query_mu_whitten.size())
-                # print("mu_whitten2.5",mu_whitten.unsqueeze(0).size())
+                # print("mu_whitten2.5",closed_s_mu_whitten.unsqueeze(0).size())
                 # 損失をマイナスではなく、そのまま入力してみる → 意味ない
-                dist_few = -torch.norm(query_mu_whitten - mu_whitten.unsqueeze(0), p=2, dim=2)
-                # dist_few = torch.norm(query_mu_whitten - mu_whitten.unsqueeze(0), p=2, dim=2)
+                dist_few = -torch.norm(query_mu_whitten - closed_s_mu_whitten.unsqueeze(0), p=2, dim=2)
+                # dist_few = torch.norm(query_mu_whitten - closed_s_mu_whitten.unsqueeze(0), p=2, dim=2)
                 # print("dist_few_size:",dist_few.size())
                 # print("dist_few:",dist_few)
             elif self.args.distance == "cosine":
                 query_mu_whitten = query_mu_whitten.view(-1, batch_size, feat_size)
                 
                 # dist_fewは各クラスの推論確率
-                dist_few = self.cos_classifier(self.args, mu_whitten.unsqueeze(0), query_mu_whitten)
+                dist_few = self.cos_classifier(self.args, closed_s_mu_whitten.unsqueeze(0), query_mu_whitten)
                 dist_few = dist_few.squeeze(0)
                 # print("dist_few_size:",dist_few.size())
                 # print("dist_few:",dist_few)
@@ -286,18 +293,18 @@ class OpenNet(nn.Module):
             # print("query_mu_whitten2",query_mu_whitten.size())
 
 
-            # dist_few = self.cos_classifier(self.args, mu_whitten.unsqueeze(0), query_mu_whitten)
-            # dist_few = -torch.norm(query_mu_whitten - mu_whitten.unsqueeze(0), p=2, dim=2)
+            # dist_few = self.cos_classifier(self.args, closed_s_mu_whitten.unsqueeze(0), query_mu_whitten)
+            # dist_few = -torch.norm(query_mu_whitten - closed_s_mu_whitten.unsqueeze(0), p=2, dim=2)
             # 追加
             # dist_few = dist_few.squeeze(0)
             
             ## FSL損失
             # クエリセットのみの距離を格納
-            dist_few_few = dist_few[:query_amount, :]
+            dist_few_few = dist_few[:closed_q_amount, :]
             # print("dist_few_few",dist_few_few)
             # クロスエントロピー損失関数（cel_all）
             # クエリセットの予測結果をGTと比較して損失をとっている
-            l_few = self.cel_all(dist_few_few, target_query)
+            l_few = self.cel_all(dist_few_few, target_closed_q)
             print("l_few",l_few)
             # openfew loss
             # エントロピーコスト（entropy cost）を計算します。エントロピーコストは、分類の確信度や不確実性を測定するために使用される
@@ -306,7 +313,7 @@ class OpenNet(nn.Module):
             ## OSR損失
             if self.opts.train.entropy:
                 # OpenSetクラスのサンプル間の距離を表す
-                dist_few_open = dist_few[query_amount:query_amount+open_amount, :]
+                dist_few_open = dist_few[closed_q_amount:closed_q_amount+open_q_amount, :]
                 # 各要素に対するソフトマックスと対数ソフトマックスを計算
                 # 各サンプルのクラス確率分布と対数確率分布が計算される
                 # クラス確率分布と対数確率分布を要素ごとの積をとり、各サンプルの各クラスに対するエントロピーコストを計算
@@ -323,9 +330,9 @@ class OpenNet(nn.Module):
             # defaulでtrue
             # 補助タスクに関する損失計算
             if self.opts.model.structure == "resnet":
-                target_base = target[support_amount+query_amount+open_amount:]
+                target_base = target[closed_s_amount+closed_q_amount+open_q_amount:]
                 # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
-                base_mu = x_mu[support_amount+query_amount+open_amount:, :, :, :]
+                base_mu = x_mu[closed_s_amount+closed_q_amount+open_q_amount:, :, :, :]
                 if self.opts.train.aux:
                     # print("base_mu1",base_mu.size())
                     # 平均プーリングを実行し、特徴量の平均値を計算
@@ -351,11 +358,11 @@ class OpenNet(nn.Module):
                 else:
                     l_aux = torch.tensor([0])
             elif self.opts.model.structure == "vit":
-                target_base = target[support_amount+query_amount+open_amount:]
+                target_base = target[closed_s_amount+closed_q_amount+open_q_amount:]
                 # 補助タスクの入力として使用するサンプルの特徴量を抽出し、base_mu に格納
                 # 補助タスクとは分類損失をとるために、support-set, query-set, open-setを用いて、分類問題を解くタスク
                 # 実質dist_baseとして扱える
-                base_mu = x_mu[support_amount+query_amount+open_amount:,:]
+                base_mu = x_mu[closed_s_amount+closed_q_amount+open_q_amount:,:]
                 # print("base_mu1",base_mu.size())
                 base_size, feat_size = base_mu.size()
                 # print("base_mu",base_mu.size())
@@ -390,20 +397,39 @@ class OpenNet(nn.Module):
             # TEST
             # 存在するカテゴリ数の範囲内でラベルを再割り当てする
             # ex) [9, 3, 4, 5, 7] => [4, 0, 1, 2, 3]
-            # target_unique: 返還前のラベルが格納されている
+            # target_fsl_unique: 返還前のラベルが格納されている
             # target_fsl: 変換後のラベルが格納されている
-            target_unique, target_fsl = self.get_fsl_target(target[:support_amount+query_amount])
-            # サポートセットのGT
-            target_support = target_fsl[:support_amount]
-            # print('target_support', target_support)
-            # クエリセットのGT
-            target_query = target_fsl[support_amount:support_amount+query_amount]
-            # print('target_query', target_query)
-            # print('target_unique', target_unique)
+            target_closed = torch.cat((target[:closed_s_amount], target[support_amount:support_amount+closed_q_amount]), dim=0)
+            print('target_closed_s', target[:closed_s_amount])
+            target_fsl_unique, target_fsl = self.get_unique_target(target_closed)
+            print('target_fsl_unique', target_fsl_unique)
+            # クローズドサポートセットのGT
+            target_closed_s = target_fsl[:closed_s_amount]
+            print('target_closed_s', target_closed_s)
+            # クローズドクエリセットのGT
+            target_closed_q = target_fsl[closed_s_amount:closed_s_amount+closed_q_amount]
+            # print('target_closed_q', target_closed_q)
+            # print('target_fsl_unique', target_fsl_unique)
+
+            target_open = torch.cat((target[closed_s_amount:support_amount], target[support_amount+closed_q_amount:]), dim=0)
+            target_osr_unique, target_osr = self.get_unique_target(target_open)
+            print('target_osr_unique', target_osr_unique)
+            target_osr = target_osr + n_way
+            target_open_s = target_osr[:open_s_amount]
+            print('target_open_s', target_open_s)
+            target_open_q = target_osr[open_s_amount:open_s_amount+open_q_amount]
+
+            # target_unique, target_trans = self.get_unique_target(target)
+            # target_closed_s = target_trans[:closed_s_amount]
+            # print('target_closed_s', target_closed_s)
+            # target_closed_q = target_trans[support_amount:support_amount+closed_q_amount]
+            # target_open_s = target_trans[closed_s_amount:support_amount]
+            # print('target_open_s', target_open_s)
+            # target_open_q = target_trans[support_amount:support_amount+closed_q_amount+open_q_amount]
 
             if self.opts.model.structure == "resnet":
-                support_mu = x_mu[:support_amount*aug_scale, :, :, :]
-                query_mu = x_mu[support_amount*aug_scale:(support_amount+query_amount+open_amount)*aug_scale, :, :, :]
+                support_mu = x_mu[:closed_s_amount*aug_scale, :, :, :]
+                query_mu = x_mu[closed_s_amount*aug_scale:(closed_s_amount+closed_q_amount+open_q_amount)*aug_scale, :, :, :]
                 # print("support_mu1:",support_mu.size())
                 # print("query_mu1:",query_mu.size())
                 batch_size, feat_size, feat_h, feat_w = query_mu.size()
@@ -415,7 +441,7 @@ class OpenNet(nn.Module):
 
                 if self.opts.train.open_detect == 'gauss':
                     support_sigs = support_sigs.view(-1, aug_scale, feat_size, feat_h, feat_w).mean(dim=1)
-                idxs = torch.stack([(target_support == i).nonzero().squeeze() for i in range(n_way)])
+                idxs = torch.stack([(target_closed_s == i).nonzero().squeeze() for i in range(n_way)])
                 # print("idx:",idxs)
                 if len(idxs.size()) < 2:
                     idxs.unsqueeze_(1)
@@ -423,18 +449,18 @@ class OpenNet(nn.Module):
                 mu = support_mu[idxs, :, :, :].mean(dim=1)
                 # print("mu:",mu.size())
                 if self.opts.train.open_detect == 'center':
-                    mu_whitten = mu
+                    closed_s_mu_whitten = mu
                     query_mu_whitten = query_mu
                 else:
                     sigs = support_sigs[idxs, :, :, :].mean(dim=1)
-                    mu_whitten = torch.mul(mu, sigs)
+                    closed_s_mu_whitten = torch.mul(mu, sigs)
                     query_mu_whitten = torch.mul(query_mu.unsqueeze(1), sigs.unsqueeze(0))
                 # print("aug_scale:",aug_scale)
-                # print("mu_whitten1:",mu_whitten.size())
-                # mu_whitten = self.avgpool(mu_whitten)
-                # print("mu_whitten2:",mu_whitten.size())
-                mu_whitten = mu_whitten.view(-1, feat_size)
-                # print("mu_whitten3:",mu_whitten.size())
+                # print("mu_whitten1:",closed_s_mu_whitten.size())
+                # closed_s_mu_whitten = self.avgpool(closed_s_mu_whitten)
+                # print("mu_whitten2:",closed_s_mu_whitten.size())
+                closed_s_mu_whitten = closed_s_mu_whitten.view(-1, feat_size)
+                # print("mu_whitten3:",closed_s_mu_whitten.size())
 
                 # print("query_mu_whitten1:",query_mu_whitten.size())
                 # print("query_mu_whitten1.5:",query_mu_whitten.view(-1, feat_size, feat_h, feat_w).size())
@@ -444,145 +470,157 @@ class OpenNet(nn.Module):
                 # print("query_mu_whitten3:",query_mu_whitten.size())
             elif self.opts.model.structure == "vit":
             # prepare class gauss
-            # support_mu = x_mu[:support_amount*aug_scale, :, :, :]
-            # query_mu = x_mu[support_amount*aug_scale:(support_amount+query_amount+open_amount)*aug_scale, :, :, :]
+            # support_mu = x_mu[:closed_s_amount*aug_scale, :, :, :]
+            # query_mu = x_mu[closed_s_amount*aug_scale:(closed_s_amount+closed_q_amount+open_q_amount)*aug_scale, :, :, :]
             # if self.opts.train.open_detect == 'gauss':
-            #     support_sigs_0 = x_sigs[:support_amount*aug_scale, :, :, :]
+            #     support_sigs_0 = x_sigs[:closed_s_amount*aug_scale, :, :, :]
             #     support_sigs_1 = self.layer_sigs_0(support_sigs_0).mean(dim=0, keepdim=True).expand_as(support_sigs_0)
             #     support_sigs_1 = torch.cat((support_sigs_0, support_sigs_1), dim=1)
             #     support_sigs = self.layer_sigs_1(support_sigs_1)
             
             # batch_size, feat_size, feat_h, feat_w = query_mu.size()
 
-            # fewshot
-            # support_mu = support_mu.view(-1, aug_scale, feat_size, feat_h, feat_w).mean(dim=1)
-            # if self.opts.train.open_detect == 'gauss':
-            #     support_sigs = support_sigs.view(-1, aug_scale, feat_size, feat_h, feat_w).mean(dim=1)
-            # idxs = torch.stack([(target_support == i).nonzero().squeeze() for i in range(n_way)])
-            # if len(idxs.size()) < 2:
-            #     idxs.unsqueeze_(1)
-            # mu = support_mu[idxs, :, :, :].mean(dim=1)
-            # if self.opts.train.open_detect == 'center':
-            #     mu_whitten = mu
-            #     query_mu_whitten = query_mu
-            # else:
-            #     sigs = support_sigs[idxs, :, :, :].mean(dim=1)
-            #     mu_whitten = torch.mul(mu, sigs)
-            #     query_mu_whitten = torch.mul(query_mu.unsqueeze(1), sigs.unsqueeze(0))
-                # query_mu_whitten: クエリセットとオープンセットの特徴抽出結果を格納している
-                query_mu_whitten = x_all[support_amount*aug_scale:(support_amount+query_amount+open_amount)*aug_scale,:]
-                # print("query_mu_whitten:",query_mu_whitten.size())
-                # query_mu_whitten: torch.Size([500, 192])
-                # batchサイズ: 500枚（query-set: 25*10, open-set: 25*10）
+            ## 各setの特徴量を格納
+                # query_mu_whitten: closed-query setとopen-query setの特徴抽出結果を格納している
+                query_mu_whitten = x_all[support_amount*aug_scale:(support_amount+closed_q_amount+open_q_amount)*aug_scale,:]
+                # print("query_mu_whitten1:",query_mu_whitten.size())
+                # output>> query_mu_whitten1: torch.Size([1500, 192])
+                # batchサイズ: 1500枚（closed-query set: 75*10, open-query set: 75*10）
                 # 特徴次元: 192次元
                 batch_size, feat_size = query_mu_whitten.size()
                 # print('aug_scale2', aug_scale)
-                
-                ## open-setの特徴量を取得
-                closed_mu_whitten = x_all[support_amount*aug_scale:(support_amount+query_amount)*aug_scale, :]
-                closed_mu_whitten = closed_mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
 
-                ## open-setの特徴量を取得
-                open_mu_whitten = x_all[(support_amount+query_amount)*aug_scale: , :]
-                # print('open_mu_whitten1', open_mu_whitten.size())
-                # output>> open_mu_whitten1 torch.Size([750, 192])
-                open_mu_whitten = open_mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
-                # print('open_mu_whitten2', open_mu_whitten.size())
-                # output>> open_mu_whitten2 torch.Size([75, 192])
-                # print('open_mu_whitten2', open_mu_whitten)            
+                ## closed-query setの特徴量を取得
+                closed_q_mu_whitten = x_all[support_amount*aug_scale:(support_amount+closed_q_amount)*aug_scale, :]
+                closed_q_mu_whitten = closed_q_mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
+                # print('closed_q_mu_whitten', closed_q_mu_whitten.size())
+                # output>> closed_q_mu_whitten torch.Size([75, 192])
 
+                ## open-query setの特徴量を取得
+                open_q_mu_whitten = x_all[(support_amount+closed_q_amount)*aug_scale: , :]
+                # print('open_q_mu_whitten1', open_q_mu_whitten.size())
+                # output>> open_q_mu_whitten1 torch.Size([750, 192])
+                open_q_mu_whitten = open_q_mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
+                # print('open_q_mu_whitten2', open_q_mu_whitten.size())
+                # output>> open_q_mu_whitten2 torch.Size([75, 192])
+                # print('open_q_mu_whitten2', open_q_mu_whitten)
+
+                ## closed-support setの特徴量を取得
                 # T.TenCrop( )によって拡張した分の画像を1つにまとめる
                 # それぞれの画像に対して平均をとり、1つの特徴量として扱う
                 # 5*10 => 5
-                mu_whitten = x_all[:support_amount*aug_scale, :]
-                # print("mu_whitten1:",mu_whitten.size())
-                # mu_whitten1: torch.Size([50, 192])
-                # print("mu_whitten1.5:",mu_whitten.view(-1,aug_scale, feat_size).size())
-                # mu_whitten1.5: torch.Size([5, 10, 192])
-                mu_whitten = mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
+                closed_s_mu_whitten = x_all[:closed_s_amount*aug_scale, :]
+                # print("closed_s_mu_whitten1:",closed_s_mu_whitten.size())
+                # output>> closed_s_mu_whitten1: torch.Size([50, 192])
+                # print("closed_s_mu_whitten1.5:", closed_s_mu_whitten.view(-1,aug_scale, feat_size).size())
+                # output>> closed_s_mu_whitten1.5: torch.Size([5, 10, 192])
+                closed_s_mu_whitten = closed_s_mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
+                # print("closed_s_mu_whitten2:", closed_s_mu_whitten.size())
                 # 上2つをまとめた書き方
-                # mu_whitten = x_all[:support_amount*aug_scale, :].view(-1,aug_scale, feat_size).mean(dim=1)
-                # print("mu_whitten2:",mu_whitten.size())
-                # mu_whitten2: torch.Size([5, 192])
+                # closed_s_mu_whitten = x_all[:closed_s_amount*aug_scale, :].view(-1,aug_scale, feat_size).mean(dim=1)
 
+                ## open-support setの特徴量を取得
+                open_s_mu_whitten = x_all[closed_s_amount*aug_scale:support_amount*aug_scale, :]
+                # print("open_s_mu_whitten1:", open_s_mu_whitten.size())
+                # output>> open_s_mu_whitten1: torch.Size([500, 192])
+                open_s_mu_whitten = open_s_mu_whitten.view(-1,aug_scale, feat_size).mean(dim=1)
+                # print("open_s_mu_whitten2:", open_s_mu_whitten.size())
+                # output>> open_s_mu_whitten2: torch.Size([50, 192])
+
+            ## prototypeの作成
+                ## closed-support set
                 # 各クラスに属するサポートセットのインデックスを取得
-                idxs = torch.stack([(target_support == i).nonzero().squeeze() for i in range(n_way)])
-                # print("idx:",idxs)
+                idxs = torch.stack([(target_closed_s == i).nonzero().squeeze() for i in range(n_way)])
+                print("closed_idx:",idxs)
+                # output>> closed_idx: tensor([2, 0, 4, 1, 3], device='cuda:0')
                 # インデックスが1次元の場合に次元を調整する
                 if len(idxs.size()) < 2:
                     # 次元を追加
                     idxs.unsqueeze_(1)
                     # print("idx2:",idxs)
+                    """
+                    idx2: tensor([[2],
+                    [0],
+                    [4],
+                    [1],
+                    [3]], device='cuda:0')
+                    """
                 # 各クラスの特徴量の平均をとり、代表点（プロトタイプ）を取得
-                mu_whitten = mu_whitten[idxs, :].mean(dim=1)
-                # print("mu_whitten2:",mu_whitten.size())
-                # mu_whitten2: torch.Size([5, 192])
+                # 入力画像のラベルの大小関係にしたがって、プロトタイプのソートも行わている
+                # すなわち、closed_prototypeのdim 0のインデックスはラベルに一致
+                closed_prototype = closed_s_mu_whitten[idxs, :].mean(dim=1)
+                # print("closed_prototype:", closed_prototype.size())
+                # output>> closed_prototype: torch.Size([5, 192])
+
+                ## open-support set
+                idxs = torch.stack([(target_open_s == i).nonzero().squeeze() for i in range(n_way, n_way+open_cls)])
+                print("open_idx:",idxs)
+                if len(idxs.size()) < 2:
+                    idxs.unsqueeze_(1)
+                open_prototype = open_s_mu_whitten[idxs, :].mean(dim=1)
+                # print("open_prototype:", open_prototype.size())
+                # output>> open_prototype: torch.Size([5, 192])
+
+                ## closed_prototype と open_prototype を結合
+                prototype = torch.cat((closed_prototype, open_prototype), dim=0)
+                # print('prototype:', prototype.size())
+                # prototype: torch.Size([10, 192])
+                # この場合dim 0において[0:5]はclosed-prototype, [5:10]はopen-prototype
 
             if self.args.distance == "euclidean":
                 query_mu_whitten = query_mu_whitten.view(batch_size, -1, feat_size)
-                # print("query_mu_whitten1:",query_mu_whitten.size())
-                # query_mu_whitten1: torch.Size([500, 1, 192])
-                # mu_whitten.unsqueeze(0): torch.Size([1, 5, 192])
+                # print("query_mu_whitten2:",query_mu_whitten.size())
+                # output>> query_mu_whitten2: torch.Size([1500, 1, 192])
+                # 距離を求める
+                # print('prototype.unsqueeze(0):', prototype.unsqueeze(0).size)
+                # output>> prototype.unsqueeze(0): torch.Size([1, 10, 192])
                 # dist_few: ユークリッド距離の計算結果を格納
-                dist_few = torch.norm(query_mu_whitten - mu_whitten.unsqueeze(0), p=2, dim=2)
-                # print('dist_few:', dist_few.size())
-                # dist_few: torch.Size([500, 5])
+                dist_few = torch.norm(query_mu_whitten - prototype.unsqueeze(0), p=2, dim=2)
+                # print('dist_few1:', dist_few.size())
+                # output>> dist_few1: torch.Size([1500, 10])
+                # 150*10 => 150(query-set; 75. open-set: 75)
+
             elif self.args.distance == "cosine":
                 query_mu_whitten = query_mu_whitten.view(-1, batch_size, feat_size)
-                dist_few = self.cos_classifier(self.args, mu_whitten.unsqueeze(0), query_mu_whitten)
+                dist_few = self.cos_classifier(self.args, closed_s_mu_whitten.unsqueeze(0), query_mu_whitten)
                 dist_few = dist_few.squeeze(0)
 
-            # print("mu_whitten3:",mu_whitten.size())
-            ### ここを変更した
-            # query_mu_whitten = query_mu_whitten.view(-1, batch_size, feat_size)
-            # query_mu_whitten = query_mu_whitten.view(batch_size, -1, feat_size)
-            # print("query_mu_whitten2:",query_mu_whitten.size())
-            ## 変更
-            # dist_few = torch.norm(query_mu_whitten - mu_whitten.unsqueeze(0), p=2, dim=2)
-            # print("dist_few1:",dist_few.size())
-            #### ここから変更する
-
-            # dist_few = self.cos_classifier(self.args, mu_whitten.unsqueeze(0), query_mu_whitten)
-            # print("dist_few_size",dist_few.size()),
-            # print("dist_few1",dist_few),
-
-            # dist_few = dist_few.squeeze(0)
-            # print("dist_few2",dist_few.size()),
-
             # aug_scale分（T.TenCrop()で拡張した分）の距離の平均を計算
-            # 50*10 => 50(query-set; 25. open-set: 25)
-            dist_few = dist_few.view(-1, aug_scale, n_way).mean(dim=1)
-            # print("dist_few3",dist_few.size()),
-            # dist_few3 torch.Size([50, 5])
-            # print("dist_few3",dist_few),
+            dist_few = dist_few.view(-1, aug_scale, n_way+open_cls).mean(dim=1)
+            # print('dist_few2:', dist_few.size())
+            # output>> dist_few2: torch.Size([150, 10])
 
-            # print("dist_few2:",dist_few.size())
-            # print("dist_few",dist_few)
-            ###
             # 求めた各クエリの距離に対してソフトマックス関数を適用し、各クラスに対する確率を求める
             dist_few_sm = self.sm(dist_few)
             # print("dist_few_sm",dist_few_sm.size())
+            # dist_few_sm torch.Size([150, 10])
             # print("dist_few_sm",dist_few_sm)
+            # 予測確率と予測ラベルをそれぞれall_score, all_predに格納
             if self.args.distance == "euclidean":
                 all_score, all_pred = dist_few_sm.min(dim=1)
             elif self.args.distance == "cosine":
                 all_score, all_pred = dist_few_sm.max(dim=1)
-            # print("dist_few_sm:",dist_few_sm.size())
-            # all_score, all_pred = dist_few_sm.max(dim=1)
-            # print("all_score",all_score.size()),
-            # print("all_pred",all_pred)
+            # print("all_score",all_score.size())
+            # all_score torch.Size([150])
+            # print("all_pred",all_pred.size())
+            # all_pred torch.Size([150])
+            print("all_pred",all_pred)
 
             # 全予測結果からクエリセットのみの予測結果を抽出
-            few_pred = all_pred[:query_amount]
-            # print('few_pred', few_pred)
-            closed_few = torch.ones(query_amount)
+            closed_pred = all_pred[:closed_q_amount]
+            # print('closed_pred', closed_pred)
+            open_pred = all_pred[closed_q_amount:closed_q_amount+open_q_amount]
+            # print('open_pred', open_pred)
+            closed_q = torch.ones(closed_q_amount)
             # print("closed_few:",closed_few)
-            closed_open = -torch.ones(open_amount)
+            open_q = -torch.ones(open_q_amount)
             # print("closed_open:",closed_open)
             # closed-setかopen-setかのGT
-            closed = torch.cat((closed_few, closed_open), dim=0)
-            return few_pred.detach().cpu(), target_query.detach().cpu(), all_score.detach().cpu(), closed, \
-                    dist_few_sm.detach().cpu(), all_pred.detach().cpu(), target_unique.detach().cpu(), closed_mu_whitten.detach().cpu(), open_mu_whitten.detach().cpu()
+            target_osr = torch.cat((closed_q, open_q), dim=0)
+            return closed_pred.detach().cpu(), open_pred.detach().cpu(), all_pred.detach().cpu(), \
+                   target_closed_q.detach().cpu(), target_open_q.detach().cpu(), all_score.detach().cpu(), \
+                   target_fsl_unique.detach().cpu(), closed_q_mu_whitten.detach().cpu(), \
+                   open_q_mu_whitten.detach().cpu(), target_osr, dist_few_sm.detach().cpu()
 
     def forward_regular(self, batch, train=True):
         input, target = batch[0].to(self.opts.ctrl.device), batch[1].to(self.opts.ctrl.device)
@@ -625,8 +663,8 @@ class OpenNet(nn.Module):
         else :
             # TEST
             if self.opts.model.structure == "resnet":
-                support_mu = x_mu[:support_amount*aug_scale, :, :, :]
-                query_mu = x_mu[support_amount*aug_scale:(support_amount+query_amount+open_amount)*aug_scale, :, :, :]
+                support_mu = x_mu[:closed_s_amount*aug_scale, :, :, :]
+                query_mu = x_mu[closed_s_amount*aug_scale:(closed_s_amount+closed_q_amount+open_q_amount)*aug_scale, :, :, :]
                 # print("support_mu1:",support_mu.size())
                 # print("query_mu1:",query_mu.size())
                 batch_size, feat_size, feat_h, feat_w = query_mu.size()
@@ -638,7 +676,7 @@ class OpenNet(nn.Module):
 
                 if self.opts.train.open_detect == 'gauss':
                     support_sigs = support_sigs.view(-1, aug_scale, feat_size, feat_h, feat_w).mean(dim=1)
-                idxs = torch.stack([(target_support == i).nonzero().squeeze() for i in range(n_way)])
+                idxs = torch.stack([(target_closed_s == i).nonzero().squeeze() for i in range(n_way)])
                 # print("idx:",idxs)
                 if len(idxs.size()) < 2:
                     idxs.unsqueeze_(1)
@@ -646,18 +684,18 @@ class OpenNet(nn.Module):
                 mu = support_mu[idxs, :, :, :].mean(dim=1)
                 # print("mu:",mu.size())
                 if self.opts.train.open_detect == 'center':
-                    mu_whitten = mu
+                    closed_s_mu_whitten = mu
                     query_mu_whitten = query_mu
                 else:
                     sigs = support_sigs[idxs, :, :, :].mean(dim=1)
-                    mu_whitten = torch.mul(mu, sigs)
+                    closed_s_mu_whitten = torch.mul(mu, sigs)
                     query_mu_whitten = torch.mul(query_mu.unsqueeze(1), sigs.unsqueeze(0))
                 # print("aug_scale:",aug_scale)
-                # print("mu_whitten1:",mu_whitten.size())
-                # mu_whitten = self.avgpool(mu_whitten)
-                # print("mu_whitten2:",mu_whitten.size())
-                mu_whitten = mu_whitten.view(-1, feat_size)
-                # print("mu_whitten3:",mu_whitten.size())
+                # print("mu_whitten1:",closed_s_mu_whitten.size())
+                # closed_s_mu_whitten = self.avgpool(closed_s_mu_whitten)
+                # print("mu_whitten2:",closed_s_mu_whitten.size())
+                closed_s_mu_whitten = closed_s_mu_whitten.view(-1, feat_size)
+                # print("mu_whitten3:",closed_s_mu_whitten.size())
 
                 # print("query_mu_whitten1:",query_mu_whitten.size())
                 # print("query_mu_whitten1.5:",query_mu_whitten.view(-1, feat_size, feat_h, feat_w).size())
@@ -713,10 +751,11 @@ class OpenNet(nn.Module):
         return cls_scores
 
     # 重複を削除する
-    def get_fsl_target(self, target):
+    def get_unique_target(self, target):
         # サポートとクエリ、オープンのカテゴリから重複してないカテゴリを取得する
-        target_unique, target_fsl = target.unique(return_inverse=True)
-        return target_unique, target_fsl
+        unique_labels, target_transformation = target.unique(return_inverse=True)
+
+        return unique_labels, target_transformation
 
     # # ニューラルネットワークモデル内で畳み込み層と正規化層を含むブロックを作成
     # def _make_layer(self, block, planes, blocks, stride=1):

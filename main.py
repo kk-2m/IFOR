@@ -409,25 +409,26 @@ if __name__ == '__main__':
             opts.logger('loading check points from {}'.format(state_dict_path))
             net.load_state_dict(checkpoints['model'], strict=True)
 
-            ## 評価結果をcsvファイルへ出力するための設定
-            # 基本パス
-            base_path = opts.file.test_data_path
-            print('test_dataset_path is', base_path)
-            # ディレクトリ構造を取得
-            folder_names, file_names = get_directory_structure(base_path)
-            image_paths = []
+            # ## 評価結果をcsvファイルへ出力するための設定
+            # # 基本パス
+            # base_path = opts.file.test_data_path
+            # print('test_dataset_path is', base_path)
+            # # ディレクトリ構造を取得
+            # folder_names, file_names = get_directory_structure(base_path)
+            # image_paths = []
 
-            # episode内のclosed-setの構成が記されているcsvを読み込む
-            with open(opts.file.test_episode_csv, "r") as f:
-                reader = csv.reader(f)
-                data_sampler = list(reader)
-                # 画像ファイルのパスを取得
-                for episode_datasets in data_sampler:
-                    # print('episode_dataset1', episode_datasets)
-                    # break
-                    image_paths.extend(get_image_paths(episode_datasets, folder_names, file_names, base_path))
+            # # episode内のclosed-setの構成が記されているcsvを読み込む
+            # with open(opts.file.test_episode_csv, "r") as f:
+            #     reader = csv.reader(f)
+            #     data_sampler = list(reader)
+            #     # 画像ファイルのパスを取得
+            #     for episode_datasets in data_sampler:
+            #         # print('episode_dataset1', episode_datasets)
+            #         # break
+            #         image_paths.extend(get_image_paths(episode_datasets, folder_names, file_names, base_path))
             
-            run_test(opts, args, test_db, net, opts_test, image_paths)
+            # run_test(opts, args, test_db, net, opts_test, image_paths)
+            run_test(opts, args, test_db, net, opts_test)
 
             # k-meansとsvmの実行
             opts.train.mode = 'regular'

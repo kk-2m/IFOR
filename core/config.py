@@ -109,6 +109,9 @@ class Config(object):
     open.n_cls = 5
     open.n_cls_val = 5
     open.n_cls_test = 5
+    open.k_shot = 1
+    open.k_shot_val = 1
+    open.k_shot_test = 1
     open.m_sample = 1
     open.m_sample_val = 1
     open.m_sample_test = 1
