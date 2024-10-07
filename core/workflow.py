@@ -78,7 +78,7 @@ def update_loss_scale(opts, episode):
             break
     # 30000
     for i in range(len(opts.train.loss_scale_kmeans_lut[0])):
-        if episode < opts.train.loss_scale_kemans_lut[0][i]:
+        if episode < opts.train.loss_scale_kmeans_lut[0][i]:
             # default 0.1
             opts.train.loss_scale_kmeans = opts.train.loss_scale_kmeans_lut[1][i]
             break
@@ -392,7 +392,7 @@ def run_validation(opts,args, val_db, net, episode, opts_val):
     opts.logger(_curr_str)
 
     if opts.train.mode.startswith('open'):
-        accuracy, _, _, auroc, _, _, _ = evaluation(args, net, val_db, opts.train.mode, opts_val)
+        _, _, accuracy, auroc = evaluation(args, net, val_db, opts.train.mode, opts_val)
 
         eqn = '>' if accuracy > opts.ctrl.best_accuracy else '<'
         _curr_str = '\t\tCurrent accuracy is {:.4f} {:s} ' \

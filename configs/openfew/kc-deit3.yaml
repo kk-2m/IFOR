@@ -2,7 +2,7 @@
 # 他にも調整したいパラメータがあれば適宜追加する
 data:
     name:  "wcs_infrared" #"wcs_infrared", "wcs_color", #'miniimagenet'
-    im_size: 84
+    im_size: 224
     augment: 1
     augment_val: 0
     augment_test: 2
@@ -26,7 +26,7 @@ model:
     fold_test: 1
 io:
     root: 'output'
-    exp_name: 'test'
+    exp_name: 'kc-deit3-6'
 ctrl:
     gpu_id: 0
     ep_save: 500
@@ -34,7 +34,7 @@ ctrl:
     ep_val: 500
 train:
     nep: 3
-    lr: 0.000001 # 0.001
+    lr: 4e-7 # 0.001
     weight_decay: 0.0
     lr_scheduler: [1, 2]
     lr_gamma: 0.1
@@ -43,9 +43,12 @@ train:
     open_detect: 'center' # gauss
     entropy: True #true
     aux: False #true
-    kmeans: True
+    kmeans: False
+    bcl: True
     # k-means lossを求めるepisodeの間隔
-    kmeans_ep: 0
+    kmeans_ep: 100
+    # k-means lossを求めだすタイミング
+    kmeans_start: 0
     loss_scale_entropy_lut: [[30000], [0.5]]
     loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
     loss_scale_kmeans_lut: [[30000], [0.5]]
@@ -56,7 +59,7 @@ fsl:
     n_way_test: 5
     k_shot: 1 #1 default
     k_shot_val: 1 #1 default
-    k_shot_test: 1 #1 default
+    k_shot_test: 20 #1 default
     m_query: 15
     m_query_val: 15
     m_query_test: 15
@@ -69,8 +72,8 @@ open:
     n_cls_val: 5
     n_cls_test: 5
     k_shot: 1
-    k_shot_val: 10
-    k_shot_test: 10
+    k_shot_val: 1
+    k_shot_test: 20
     m_sample: 15
     m_sample_val: 15
     m_sample_test: 15

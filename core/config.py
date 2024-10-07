@@ -78,6 +78,8 @@ class Config(object):
     train.aux = False
     train.kmeans = False
     train.kmeans_ep = 5
+    train.kmeans_start = 0
+    train.bcl = False
 
     train.loss_scale_entropy = 0.0
     train.loss_scale_aux = 0.0

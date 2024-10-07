@@ -749,11 +749,10 @@ if __name__ == '__main__':
                         loss, feature_k, log_loss = net(batch, opts_train, train=True)
                         [opts.logger("{}: {}".format(key, value)) for key, value in log_loss.items()]
                         # print('feature_k size', feature_k.shape)
-                        timing = 0
 
-                        if opts.train.kmeans and episode > timing:
+                        if (opts.train.kmeans or opts.train.bcl) and episode > opts.train.kmeans_start:
                             # clustering for first time
-                            if episode == opts.train.kmeans_ep+timing:
+                            if episode == opts.train.kmeans_ep+opts.train.kmeans_start:
                                 # print('features_toepisode5', features_toepisode5.size())
                                 features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep-1),192) # shape=(image_number*kmeans_ep,192)
                                 # クラスタ数kを求める
@@ -763,12 +762,15 @@ if __name__ == '__main__':
                                 # クラスタ中心を求める
                                 _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes, device=opts.ctrl.device) # shape=(groups,192)
                             # 入力から特徴量を抽出、エピソードを構成しているラベルを格納
-                            if episode < opts.train.kmeans_ep+timing:
-                                features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-timing-1] = feature_k.data
-                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-timing-1] = batch[1][-opts.fsl.p_base:]
+                            elif episode < opts.train.kmeans_ep+opts.train.kmeans_start:
+                                features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-opts.train.kmeans_start-1] = feature_k.data
+                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-opts.train.kmeans_start-1] = batch[1][-opts.fsl.p_base:]
                                 # print('target base', batch[1][-opts.fsl.p_base:])
                                 toepisode5_n += feature_k.shape[0]
-                            elif episode > opts.train.kmeans_ep+timing and episode % opts.train.kmeans_ep == 0:
+                            # k-means lossをopts.train.kmeans_epの間隔ごとに求める時
+                            # elif episode > opts.train.kmeans_ep+opts.train.kmeans_start and episode % opts.train.kmeans_ep == 0:
+                            # k-means lossを毎episode求める時
+                            elif episode > opts.train.kmeans_ep+opts.train.kmeans_start:
                                 # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
                                 distance_k = torch.sum(torch.pow((feature_k.expand(best_c.shape[0],feature_k.shape[0],feature_k.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
                                 # 各パッチのクラスタ割り当て結果を格納
@@ -776,13 +778,6 @@ if __name__ == '__main__':
                                 # 抽出された特徴量とクラスタ割り当て結果を格納
                                 features_k = feature_k.data
                                 result_k = y_id
-                                
-                                # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
-                                loss_kmeans = distance_k.min(dim=1).values.mean()
-                                opts.logger("loss_kmeans: {}".format(loss_kmeans))
-                                # print("loss_kmeans",loss_kmeans)
-
-                                # loss += loss_kmeans * opts.train.loss_scale_bc
 
                                 unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
                                 k = len(unique_labels)
@@ -794,21 +789,43 @@ if __name__ == '__main__':
                                 # print('new result:',new_result)
 
                                 distance_matrix = torch.cdist(best_c, best_c)
-                                # loss_bc_pos = 1/torch.mean(distance_matrix)
-                                # opts.logger("loss_between-class positive: {}".format(loss_bc_pos))
-                                loss_bc_neg = -torch.mean(distance_matrix)
-                                opts.logger("loss_between-class negative: {}".format(loss_bc_neg))
+                                # print('distance_matrix', distance_matrix)
 
-                                # loss += loss_bc_pos * opts.train.loss_scale_bc
-                                loss += loss_bc_neg * opts.train.loss_scale_bc
-                                # loss += loss_kmeans*loss_bc_pos * opts.train.loss_scale_bc
-                                # loss += loss_kmeans + loss_bc_pos * opts.train.loss_scale_bc
-                                # loss += loss_kmeans + loss_bc_neg * opts.train.loss_scale_bc
-                                # bad loss
-                                # loss += loss_bc_neg * opts.train.loss_scale_bc
-                                # loss += loss_kmeans/loss_bc_neg * opts.train.loss_scale_bc
-                                # loss += loss_kmeans + (1/loss_bc_neg * opts.train.loss_scale_bc)
-
+                                # k-means Lossの計算
+                                if opts.train.kmeans:
+                                    loss_kmeans = distance_k.min(dim=1).values.mean()
+                                else:
+                                    loss_kmeans = torch.tensor([0])
+                                # Between Class Lossの計算
+                                if opts.train.bcl:
+                                    # +1divb
+                                    # loss_bc_pos = 1/torch.mean(distance_matrix)
+                                    # -b
+                                    # loss_bc_neg = -torch.mean(distance_matrix)
+                                    # -logb
+                                    epsilon = 1e-4
+                                    loss_bc_neg = -torch.log(torch.mean(distance_matrix) + epsilon)
+                                else:
+                                    loss_bc_pos = torch.tensor([0])
+                                if opts.train.bcl and opts.train.kmeans:
+                                    # loss += (loss_kmeans * opts.train.loss_scale_kmeans) * (loss_bc_pos * opts.train.loss_scale_bc)
+                                    # opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                    # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
+                                    # loss += (loss_kmeans * opts.train.loss_scale_kmeans) + (loss_bc_pos * opts.train.loss_scale_bc)
+                                    # opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                    # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
+                                    loss += (loss_kmeans * opts.train.loss_scale_kmeans) + (loss_bc_neg * opts.train.loss_scale_bc)
+                                    opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                    opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_neg*opts.train.loss_scale_bc))
+                                # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
+                                elif opts.train.kmeans:
+                                    loss += loss_kmeans * opts.train.loss_scale_kmeans
+                                    opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                else:
+                                    # loss += loss_bc_pos * opts.train.loss_scale_bc
+                                    # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
+                                    loss += loss_bc_neg * opts.train.loss_scale_bc
+                                    opts.logger("loss_between-class negative({}): {}".format(opts.train.loss_scale_bc, loss_bc_neg*opts.train.loss_scale_bc))
                         total_loss += loss.item()
                         # ロスでネットを更新
                         optimizer.zero_grad()
@@ -832,7 +849,8 @@ if __name__ == '__main__':
 
                         # VALIDATION and SAVE BEST MODEL
                         if episode % opts.ctrl.ep_val == 0 or episode == total_episode - 1:
-                            if run_validation(opts, args, val_db, net, episode, opts_val):
+                            output_list = run_validation(opts, args, val_db, net, episode, opts_val)
+                            if output_list[0]:
                                 save_file = opts.io.best_model_file
                                 save_model(opts, net, optimizer, scheduler, episode, save_file)
                                 opts.logger('\tBest model saved to: {}, at [episode {}]\n'.format(save_file, episode))
