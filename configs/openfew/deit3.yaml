@@ -2,21 +2,21 @@
 # 他にも調整したいパラメータがあれば適宜追加する
 data:
     name:  "wcs_infrared" #"wcs_infrared", "wcs_color", #'miniimagenet'
-    im_size: 84
+    im_size: 224
     augment: 1
     augment_val: 0
     augment_test: 2
-file:
+# file:
     # 評価データの画像ファイル名を取得するのに使う
-    test_data_path: 'dataset/cct/dataset/infrared_dataset/test'
+    # test_data_path: 'dataset/cct/dataset/infrared_dataset/test'
     # 評価時の各エピソードにおいてのquery-setの入力順を読み込むファイル
     # result_csvに結果を出力際の正解ラベルの対応付けに使用
     # このデータサンプラーは結局使っていない
     # 後で消す
-    test_episode_csv: 'result/data_sampler-5shot.csv'
+    # test_episode_csv: 'result/data_sampler-5shot.csv'
     # モデルの評価結果を保存するfile-path
     # ../result/infrared/wcs-cct/vit-origin.csv'
-    result_csv: 'result/tmp/deit3_tiny_patch16(28shot_test).csv'
+    # result_csv: 'result/tmp/deit3_tiny_patch16(28shot_test).csv'
 model:
     # structure:  "resnet"  # 'resnet10'
     structure: "vit"
@@ -36,7 +36,7 @@ ctrl:
     ep_val: 500
 train:
     nep: 3
-    lr: 0.000001 # 0.001
+    lr: 1e-6 # 0.001
     weight_decay: 0.0
     lr_scheduler: [1, 2]
     lr_gamma: 0.1
@@ -46,7 +46,7 @@ train:
     entropy: True #true
     aux: True #true
     loss_scale_entropy_lut: [[30000], [0.5]]
-    loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
+    loss_scale_aux_lut: [[10000, 30000], [0.5, 0.3]]
 fsl:
     n_way: 5
     n_way_val: 5
@@ -65,6 +65,9 @@ open:
     n_cls: 5
     n_cls_val: 5
     n_cls_test: 5
+    k_shot: 1
+    k_shot_val: 1
+    k_shot_test: 1
     m_sample: 15
     m_sample_val: 15
     m_sample_test: 15

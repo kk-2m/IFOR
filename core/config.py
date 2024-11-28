@@ -77,7 +77,10 @@ class Config(object):
     train.entropy = False
     train.aux = False
     train.kmeans = False
-    train.kmeans_ep = 5
+    train.first_kmeans_ep = 100
+    train.kmeans_ep = 10
+    train.kmeans_start = 0
+    train.bcl = False
 
     train.loss_scale_entropy = 0.0
     train.loss_scale_aux = 0.0

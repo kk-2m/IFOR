@@ -130,7 +130,7 @@ def data_loader(opts, opts_runtime, split):
         # FSL, OSR用の画像選択アルゴリズム
             data_sampler = MetaSampler(data, opts_runtime, train=is_train)
         # データセットから取得する
-        db = DataLoader(data, batch_sampler=data_sampler, num_workers=8, pin_memory=True)
+        db = DataLoader(data, batch_sampler=data_sampler, num_workers=8, pin_memory=False)
         # for images, labels in db:
         #     print('label1', labels)
         #     break

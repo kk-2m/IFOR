@@ -636,9 +636,12 @@ def get_backbone(args):
         model = default_pretrained_model(args)
         print('Pretrained BEiT loaded')
 
-    elif args.arch == 'clip_base_patch16_224':
-        from . import clip
+    elif args.arch == 'clip_vit_base_patch16':
+        from core.models.clip import clip
+        # print("clip.available_models()", clip.available_models())
         model, _ = clip.load('ViT-B/16', 'cpu')
+        print(model)
+        print('clip_vit_base_patch16 is used')
 
     elif args.arch == 'clip_resnet50':
         from . import clip

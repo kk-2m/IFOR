@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from utils.nearest_neighbor import k_center
 
 from core.feat import feat_extract, BasicBlock, conv1x1
 
@@ -60,6 +59,8 @@ class OpenNet(nn.Module):
                     if args.arch == 'resnet18' or args.arch == 'resnet18-fractal-1k' or args.arch == "resnet18-fractal-imgnet":
                         self.fc = nn.Linear(512 * self.block_expansion, self.num_classes)
                         print("custom_resnet")
+                    elif args.arch == 'clip_vit_base_patch16':
+                        self.fc = nn.Linear(512 * self.block_expansion, self.num_classes)
                     elif args.arch == 'vit-fractal-1k' or args.arch == 'vit-fractal-custom15' or args.arch == "vit-origin" or args.arch == "deit_tiny_patch16":
                         self.fc = nn.Linear(192 * self.block_expansion, self.num_classes)
                         # self.fc = nn.Linear(192 * self.block_expansion, self.num_classes)
@@ -173,7 +174,7 @@ class OpenNet(nn.Module):
 
         # FEATURE EXTRACTION
         # x_allは特徴抽出した結果のすべて
-        print('input', target)
+        # print('input', target)
         x_all = self.feat_net(input)
         if self.opts.train.open_detect == 'center':
             # 特徴量を格納
@@ -305,7 +306,6 @@ class OpenNet(nn.Module):
             # クロスエントロピー損失関数（cel_all）
             # クエリセットの予測結果をGTと比較して損失をとっている
             l_few = self.cel_all(dist_few_few, target_closed_q)
-            print("l_few",l_few)
             # openfew loss
             # エントロピーコスト（entropy cost）を計算します。エントロピーコストは、分類の確信度や不確実性を測定するために使用される
             # default: true
@@ -322,7 +322,6 @@ class OpenNet(nn.Module):
                 loss_open = loss_open.sum(dim=1)
                 # エントロピーコストの平均を計算
                 l_open = loss_open.mean()
-                print("l_open",l_open)
             # 使わない場合０を代入
             else:
                 l_open = torch.tensor([0])
@@ -375,18 +374,17 @@ class OpenNet(nn.Module):
 
                     # クロスエントロピー損失関数（cel_all）を使用して、補助タスクの損失 l_aux を計算
                     l_aux = self.cel_all(cls_pred, target_base)
-                    print("l_aux",l_aux)
                 else:
                     l_aux = torch.tensor([0])
             if self.opts.train.entropy and self.opts.train.aux:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux
-                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux}
+                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, 'raw_open': l_open, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux, 'raw_aux': l_aux}
             elif self.opts.train.entropy:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy
-                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy}
+                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, 'l_open': l_open}
             elif self.opts.train.aux:
                 loss = l_few + l_aux * self.opts.train.loss_scale_aux
-                log_loss = {'l_few': l_few, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux}
+                log_loss = {'l_few': l_few, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux, 'raw_aux': l_aux}
             else:
                 loss = l_few
                 log_loss = {'l_few': l_few}
@@ -778,29 +776,3 @@ class OpenNet(nn.Module):
     #                             norm_layer=norm_layer))
 
     #     return nn.Sequential(*layers)
-
-# クラスタ中心を更新する関数
-def k_center_simple(features, f_id, c, groups:int, device="cpu"):
-    id_size = torch.zeros(groups, device=device)
-    distance = torch.zeros([features.shape[0],groups], device=device)
-
-    for epoch in range(40):
-        for k in range(groups):
-            id_size[k] = torch.sum(f_id==k)
-            if id_size[k] != 0:
-                c[k,:] = torch.mean(features[f_id==k,:],dim=0)
-        for k in range(groups):
-            distance[:,k] = torch.sum(torch.pow((features - c[k,:]),2),dim = 1)
-            new_id = torch.argsort(distance,dim = 1)[:,0].type(torch.int32)
-        if torch.sum(torch.abs(f_id-new_id))==0:
-            break
-        else:
-            f_id=new_id
-            
-    for k in range(groups):
-        id_size[k] = torch.sum(f_id==k)
-        
-    print('id_size=',id_size.type(torch.int32))
-    print(np.where(id_size.cpu()!=0)[0].shape)
-    
-    return f_id, c, id_size

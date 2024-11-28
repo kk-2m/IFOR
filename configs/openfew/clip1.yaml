@@ -7,14 +7,14 @@ data:
     augment_val: 0
     augment_test: 2
 # file:
-#     # 評価データの画像ファイル名を取得するのに使う
-#     test_data_path: './dataset/cct/dataset/infrared_dataset/test'
-#     # 評価時の各エピソードにおいてのquery-setの入力順を読み込むファイル
-#     # result_csvに結果を出力際の正解ラベルの対応付けに使用
-#     test_episode_csv: './result/data_sampler-1shot.csv'
-#     # モデルの評価結果を保存するfile-path
-#     # ../result/infrared/wcs-cct/vit-origin.csv'
-#     result_csv: './result/tmp/deit(1shot_test).csv'
+    # # 評価データの画像ファイル名を取得するのに使う
+    # test_data_path: './dataset/cct/dataset/infrared_dataset/test'
+    # # 評価時の各エピソードにおいてのquery-setの入力順を読み込むファイル
+    # # result_csvに結果を出力際の正解ラベルの対応付けに使用
+    # test_episode_csv: './result/data_sampler-1shot.csv'
+    # # モデルの評価結果を保存するfile-path
+    # # ../result/infrared/wcs-cct/vit-origin.csv'
+    # result_csv: './result/tmp/deit(1shot_test).csv'
 model:
     # structure:  "resnet"  # 'resnet10'
     structure: "vit"
@@ -26,7 +26,7 @@ model:
     fold_test: 1
 io:
     root: 'output'
-    exp_name: 'test'
+    exp_name: 'clip1'
 ctrl:
     gpu_id: 0
     ep_save: 500
@@ -34,7 +34,7 @@ ctrl:
     ep_val: 500
 train:
     nep: 3
-    lr: 0.000001 # 0.001
+    lr: 1e-6 # 0.001
     weight_decay: 0.0
     lr_scheduler: [1, 2]
     lr_gamma: 0.1
@@ -42,18 +42,19 @@ train:
     mode: 'openfew'
     open_detect: 'center' # gauss
     entropy: True #true
-    aux: False #true
-    bcl: True
+    aux: True #true
+    kmeans: False
+    bcl: False
     # k-meansの初期クラスタに要するデータポイントの収集期間
     first_kmeans_ep: 100
     # k-means lossを求めるepisodeの間隔
-    kmeans_ep: 1
+    kmeans_ep: 100
     # k-means lossを求めだすタイミング
     kmeans_start: 0
-    loss_scale_entropy_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
+    loss_scale_entropy_lut: [[30000], [0.5]]
     loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
     loss_scale_kmeans_lut: [[30000], [0.5]]
-    loss_scale_bc_lut: [[30000], [1.0]]
+    loss_scale_bc_lut: [[30000], [0.5]]
 fsl:
     n_way: 5
     n_way_val: 5
