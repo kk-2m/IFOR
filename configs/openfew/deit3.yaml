@@ -28,7 +28,7 @@ model:
     fold_test: 1
 io:
     root: 'output'
-    exp_name: 'deit3-4'
+    exp_name: 'test'
 ctrl:
     gpu_id: 0
     ep_save: 500
@@ -36,7 +36,7 @@ ctrl:
     ep_val: 500
 train:
     nep: 3
-    lr: 5e-7 # 0.001
+    lr: 1e-6 # 0.001
     weight_decay: 0.0
     lr_scheduler: [1, 2]
     lr_gamma: 0.1
@@ -46,7 +46,7 @@ train:
     entropy: True #true
     aux: True #true
     loss_scale_entropy_lut: [[30000], [0.5]]
-    loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
+    loss_scale_aux_lut: [[10000, 30000], [0.5, 0.3]]
 fsl:
     n_way: 5
     n_way_val: 5

@@ -45,14 +45,16 @@ train:
     aux: True #true
     kmeans: False
     bcl: True
+    # k-meansの初期クラスタに要するデータポイントの収集期間
+    first_kmeans_ep: 100
     # k-means lossを求めるepisodeの間隔
-    kmeans_ep: 100
+    kmeans_ep: 1
     # k-means lossを求めだすタイミング
-    kmeans_start: 10000
+    kmeans_start: 0
     loss_scale_entropy_lut: [[30000], [0.5]]
     loss_scale_aux_lut: [[5000, 10000, 20000, 30000], [0.5, 0.3, 0.1, 0.0]]
     loss_scale_kmeans_lut: [[30000], [0.0001]]
-    loss_scale_bc_lut: [[30000], [0.1]]
+    loss_scale_bc_lut: [[30000], [0.5]]
 fsl:
     n_way: 5
     n_way_val: 5

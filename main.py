@@ -431,14 +431,14 @@ if __name__ == '__main__':
             run_test(opts, args, test_db, net, opts_test)
 
             # k-meansとsvmの実行
-            opts.train.mode = 'regular'
-            opts.train.batch_size_test = 25
-            test_db2 = data_loader(opts, opts_test, 'test')
-            # for x, y in test_db2:
-            #     print('image size of', x.size())
-            #     print('label name', y)
-                # break
-            run_test(opts, args, test_db2, net, opts_test)
+            # opts.train.mode = 'regular'
+            # opts.train.batch_size_test = 25
+            # test_db2 = data_loader(opts, opts_test, 'test')
+            # # for x, y in test_db2:
+            # #     print('image size of', x.size())
+            # #     print('label name', y)
+            #     # break
+            # run_test(opts, args, test_db2, net, opts_test)
 
             print('Testing done!')        
         # 学習
@@ -713,8 +713,8 @@ if __name__ == '__main__':
                 # opts.train.mode = 'openfew'
                 # opts.train.batch_size_test = 1
 
-                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, opts.train.kmeans_ep-1, device=opts.ctrl.device)
-                labels_toepisode5 = torch.zeros(opts.fsl.p_base, opts.train.kmeans_ep-1, device=opts.ctrl.device)
+                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, opts.train.first_kmeans_ep, device=opts.ctrl.device)
+                labels_toepisode5 = torch.zeros(opts.fsl.p_base, opts.train.first_kmeans_ep, device=opts.ctrl.device)
 
                 for epoch in range(total_ep):
                     # DATA
@@ -752,80 +752,109 @@ if __name__ == '__main__':
 
                         if (opts.train.kmeans or opts.train.bcl) and episode > opts.train.kmeans_start:
                             # clustering for first time
-                            if episode == opts.train.kmeans_ep+opts.train.kmeans_start:
+                            if episode == (opts.train.first_kmeans_ep+opts.train.kmeans_start):
+                                # opts.train.first_kmeans_ep episode目の特徴量を格納
+                                features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-opts.train.kmeans_start-1] = feature_k.data
+                                labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-opts.train.kmeans_start-1] = batch[1][-opts.fsl.p_base:]
                                 # print('features_toepisode5', features_toepisode5.size())
-                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep-1),192) # shape=(image_number*kmeans_ep,192)
+                                
+                                # shape=(image_number, 192, opts.train.first_kmeans_ep-1) を shape=(image_number*first_kmeans_ep, 192) に変換
+                                features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.first_kmeans_ep),192) # shape=(image_number*first_kmeans_ep,192)
                                 # クラスタ数kを求める
-                                unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*(opts.train.kmeans_ep-1)))
+                                unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*(opts.train.first_kmeans_ep)))
                                 k_toepisode5 = len(unique_labels_toepisode5)
+                                opts.logger("the number of classes = {}".format(k_toepisode5))
                                 # print('k_toepisode =',k_toepisode5)
                                 # クラスタ中心を求める
                                 _, best_c = k_center(features_toepisode5, groups=opts.model.num_classes, device=opts.ctrl.device) # shape=(groups,192)
+                                # 初期化
+                                features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, opts.train.kmeans_ep, device=opts.ctrl.device)
+                                labels_toepisode5 = torch.zeros(opts.fsl.p_base, opts.train.kmeans_ep, device=opts.ctrl.device)
                             # 入力から特徴量を抽出、エピソードを構成しているラベルを格納
-                            elif episode < opts.train.kmeans_ep+opts.train.kmeans_start:
+                            elif episode < (opts.train.first_kmeans_ep+opts.train.kmeans_start):
                                 features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,episode-opts.train.kmeans_start-1] = feature_k.data
                                 labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),episode-opts.train.kmeans_start-1] = batch[1][-opts.fsl.p_base:]
                                 # print('target base', batch[1][-opts.fsl.p_base:])
                                 toepisode5_n += feature_k.shape[0]
-                            # k-means lossをopts.train.kmeans_epの間隔ごとに求める時
-                            # elif episode > opts.train.kmeans_ep+opts.train.kmeans_start and episode % opts.train.kmeans_ep == 0:
-                            # k-means lossを毎episode求める時
-                            elif episode > opts.train.kmeans_ep+opts.train.kmeans_start:
-                                # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
-                                distance_k = torch.sum(torch.pow((feature_k.expand(best_c.shape[0],feature_k.shape[0],feature_k.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
-                                # 各パッチのクラスタ割り当て結果を格納
-                                y_id = torch.argsort(distance_k, dim=1)[:,0].type(torch.int32)
-                                # 抽出された特徴量とクラスタ割り当て結果を格納
-                                features_k = feature_k.data
-                                result_k = y_id
+                            # k-meansクラスタ中心を更新
+                            else:
+                                if (episode-opts.train.first_kmeans_ep-opts.train.kmeans_start) % opts.train.kmeans_ep == 0:
+                                    # print('features_toepisode5', features_toepisode5.size())
+                                    # opts.train.kmeans_ep episode目の特徴量を格納
+                                    features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,opts.train.kmeans_ep-1] = feature_k.data
+                                    labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),opts.train.kmeans_ep-1] = batch[1][-opts.fsl.p_base:]
+                                    # print('target base', batch[1][-opts.fsl.p_base:])
+                                    # shape=(image_number, 192, opts.train.kmeans_ep-1) を shape=(image_number*kmeans_ep, 192) に変換
+                                    features_toepisode5 = features_toepisode5.view(features_toepisode5.shape[0]*(opts.train.kmeans_ep),192) # shape=(image_number*kmeans_ep, 192)
+                                    # 入力パッチの特徴量と現在のクラスタ中心との距離を求める
+                                    distance_k = torch.sum(torch.pow((features_toepisode5.expand(best_c.shape[0],features_toepisode5.shape[0],features_toepisode5.shape[1]).permute(1,0,2)-best_c.unsqueeze(0)),2), dim=2) # shape=(N,groups)
+                                    # 各パッチのクラスタ割り当て結果を格納
+                                    y_id = torch.argsort(distance_k, dim=1)[:,0].type(torch.int32)
+                                    # 抽出された特徴量とクラスタ割り当て結果を格納
+                                    features_k = features_toepisode5.data
+                                    result_k = y_id
 
-                                unique_labels = torch.unique(batch[1][-opts.fsl.p_base:])
-                                k = len(unique_labels)
-                                # print('k =', k)
-                                # print('result_k', result_k)
-                                # print('best_c', best_c.size())
-                                # print('features_k', features_k.size())
-                                new_result, best_c, _ = k_center_simple(features_k, result_k, best_c, groups=opts.model.num_classes, device=opts.ctrl.device)
-                                # print('new result:',new_result)
+                                    # データに含まれるクラス数の確認（クラスタ中心の更新には使用しない）
+                                    unique_labels_toepisode5 = torch.unique(labels_toepisode5.view(labels_toepisode5.shape[0]*(opts.train.kmeans_ep)))
+                                    k_toepisode5 = len(unique_labels_toepisode5)
+                                    opts.logger("the number of classes = {}".format(k_toepisode5))
+                                    # print('result_k', result_k)
+                                    # print('best_c', best_c.size())
+                                    # print('features_k', features_k.size())
+                                    new_result, best_c, _ = k_center_simple(features_k, result_k, best_c, groups=opts.model.num_classes, device=opts.ctrl.device)
+                                    # print('new result:',new_result)
 
-                                distance_matrix = torch.cdist(best_c, best_c)
-                                # print('distance_matrix', distance_matrix)
+                                    distance_matrix = torch.cdist(best_c, best_c)
+                                    # print('distance_matrix', distance_matrix)
 
-                                # k-means Lossの計算
-                                if opts.train.kmeans:
-                                    loss_kmeans = distance_k.min(dim=1).values.mean()
+                                    # k-means Lossの計算
+                                    if opts.train.kmeans:
+                                        loss_kmeans = distance_k.min(dim=1).values.mean()
+                                    else:
+                                        loss_kmeans = torch.tensor([0])
+                                    # Between Class Lossの計算
+                                    if opts.train.bcl:
+                                        # +1divb
+                                        # loss_bc_pos = 1/torch.mean(distance_matrix)
+                                        # -b
+                                        # loss_bc_neg = -torch.mean(distance_matrix)
+                                        # -logb
+                                        epsilon = 1e-4
+                                        loss_bc_neg = -torch.log(torch.mean(distance_matrix) + epsilon)
+                                    else:
+                                        loss_bc_pos = torch.tensor([0])
+                                    # Lossの結合
+                                    if opts.train.bcl and opts.train.kmeans:
+                                        # loss += (loss_kmeans * opts.train.loss_scale_kmeans) * (loss_bc_pos * opts.train.loss_scale_bc)
+                                        # opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                        # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
+                                        # loss += (loss_kmeans * opts.train.loss_scale_kmeans) + (loss_bc_pos * opts.train.loss_scale_bc)
+                                        # opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                        # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
+                                        loss += (loss_kmeans * opts.train.loss_scale_kmeans) + (loss_bc_neg * opts.train.loss_scale_bc)
+                                        opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                        opts.logger("raw_kmeans:", loss_kmeans)
+                                        opts.logger("loss_between-class negative({}): {}".format(opts.train.loss_scale_bc, loss_bc_neg*opts.train.loss_scale_bc))
+                                        opts.logger("raw_between-class negative:", loss_bc_neg)
+                                    # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
+                                    elif opts.train.kmeans:
+                                        loss += loss_kmeans * opts.train.loss_scale_kmeans
+                                        opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
+                                        opts.logger("raw_kmeans:", loss_kmeans)
+                                    else:
+                                        # loss += loss_bc_pos * opts.train.loss_scale_bc
+                                        # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
+                                        loss += loss_bc_neg * opts.train.loss_scale_bc
+                                        opts.logger("loss_between-class negative({}): {}".format(opts.train.loss_scale_bc, loss_bc_neg*opts.train.loss_scale_bc))
+                                        opts.logger("raw_between-class negative:", loss_bc_neg)
+                                    # 初期化
+                                    features_toepisode5 = torch.zeros(opts.fsl.p_base, 192, opts.train.kmeans_ep, device=opts.ctrl.device)
+                                    labels_toepisode5 = torch.zeros(opts.fsl.p_base, opts.train.kmeans_ep, device=opts.ctrl.device)
                                 else:
-                                    loss_kmeans = torch.tensor([0])
-                                # Between Class Lossの計算
-                                if opts.train.bcl:
-                                    # +1divb
-                                    # loss_bc_pos = 1/torch.mean(distance_matrix)
-                                    # -b
-                                    # loss_bc_neg = -torch.mean(distance_matrix)
-                                    # -logb
-                                    epsilon = 1e-4
-                                    loss_bc_neg = -torch.log(torch.mean(distance_matrix) + epsilon)
-                                else:
-                                    loss_bc_pos = torch.tensor([0])
-                                if opts.train.bcl and opts.train.kmeans:
-                                    # loss += (loss_kmeans * opts.train.loss_scale_kmeans) * (loss_bc_pos * opts.train.loss_scale_bc)
-                                    # opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
-                                    # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
-                                    # loss += (loss_kmeans * opts.train.loss_scale_kmeans) + (loss_bc_pos * opts.train.loss_scale_bc)
-                                    # opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
-                                    # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
-                                    loss += (loss_kmeans * opts.train.loss_scale_kmeans) + (loss_bc_neg * opts.train.loss_scale_bc)
-                                    opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
-                                    opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_neg*opts.train.loss_scale_bc))
-                                # 各パッチと割り当てられたクラスタ中心との距離の最小値の平均をとる
-                                elif opts.train.kmeans:
-                                    loss += loss_kmeans * opts.train.loss_scale_kmeans
-                                    opts.logger("loss_kmeans({}): {}".format(opts.train.loss_scale_kmeans, loss_kmeans*opts.train.loss_scale_kmeans))
-                                else:
-                                    # loss += loss_bc_pos * opts.train.loss_scale_bc
-                                    # opts.logger("loss_between-class positive({}): {}".format(opts.train.loss_scale_bc, loss_bc_pos*opts.train.loss_scale_bc))
-                                    loss += loss_bc_neg * opts.train.loss_scale_bc
-                                    opts.logger("loss_between-class negative({}): {}".format(opts.train.loss_scale_bc, loss_bc_neg*opts.train.loss_scale_bc))
+                                    features_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),:,(episode-opts.train.first_kmeans_ep-opts.train.kmeans_start)%opts.train.kmeans_ep-1] = feature_k.data
+                                    labels_toepisode5[toepisode5_n:(toepisode5_n+feature_k.shape[0]),(episode-opts.train.first_kmeans_ep-opts.train.kmeans_start)%opts.train.kmeans_ep-1] = batch[1][-opts.fsl.p_base:]
+                                    # print('target base', batch[1][-opts.fsl.p_base:])
+                                    toepisode5_n += feature_k.shape[0]
                         total_loss += loss.item()
                         # ロスでネットを更新
                         optimizer.zero_grad()

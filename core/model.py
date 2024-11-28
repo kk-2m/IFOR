@@ -59,6 +59,8 @@ class OpenNet(nn.Module):
                     if args.arch == 'resnet18' or args.arch == 'resnet18-fractal-1k' or args.arch == "resnet18-fractal-imgnet":
                         self.fc = nn.Linear(512 * self.block_expansion, self.num_classes)
                         print("custom_resnet")
+                    elif args.arch == 'clip_vit_base_patch16':
+                        self.fc = nn.Linear(512 * self.block_expansion, self.num_classes)
                     elif args.arch == 'vit-fractal-1k' or args.arch == 'vit-fractal-custom15' or args.arch == "vit-origin" or args.arch == "deit_tiny_patch16":
                         self.fc = nn.Linear(192 * self.block_expansion, self.num_classes)
                         # self.fc = nn.Linear(192 * self.block_expansion, self.num_classes)
@@ -376,13 +378,13 @@ class OpenNet(nn.Module):
                     l_aux = torch.tensor([0])
             if self.opts.train.entropy and self.opts.train.aux:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy + l_aux * self.opts.train.loss_scale_aux
-                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux}
+                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, 'raw_open': l_open, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux, 'raw_aux': l_aux}
             elif self.opts.train.entropy:
                 loss = l_few + l_open * self.opts.train.loss_scale_entropy
-                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy}
+                log_loss = {'l_few': l_few, f'l_open({self.opts.train.loss_scale_entropy})': l_open * self.opts.train.loss_scale_entropy, 'l_open': l_open}
             elif self.opts.train.aux:
                 loss = l_few + l_aux * self.opts.train.loss_scale_aux
-                log_loss = {'l_few': l_few, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux}
+                log_loss = {'l_few': l_few, f'l_aux({self.opts.train.loss_scale_aux})': l_aux * self.opts.train.loss_scale_aux, 'raw_aux': l_aux}
             else:
                 loss = l_few
                 log_loss = {'l_few': l_few}

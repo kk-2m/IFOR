@@ -54,7 +54,7 @@ fsl:
     n_way_test: 5
     k_shot: 1 #1 default
     k_shot_val: 1 #1 default
-    k_shot_test: 1 #1 default
+    k_shot_test: 20 #1 default
     m_query: 15
     m_query_val: 15
     m_query_test: 15
@@ -66,6 +66,9 @@ open:
     n_cls: 5
     n_cls_val: 5
     n_cls_test: 5
+    k_shot: 1
+    k_shot_val: 1
+    k_shot_test: 20
     m_sample: 15
     m_sample_val: 15
     m_sample_test: 15
